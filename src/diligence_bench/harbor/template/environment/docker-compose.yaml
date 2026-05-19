@@ -1,0 +1,9 @@
+services:
+  main:
+    environment:
+      - EXA_API_KEY=${EXA_API_KEY:-}
+      - OPENAI_API_KEY=${OPENAI_API_KEY:-}
+      - OPENROUTER_API_KEY=${OPENROUTER_API_KEY:-}
+      - MODEL_NAME=${MODEL_NAME:-openrouter/google/gemini-3-flash-preview}
+      - DILIGENCE_BENCH_WEB_FETCH_WRITE=1
+      - SEC_USER_AGENT=${SEC_USER_AGENT:-The LLM Data Company diligence-bench contact@example.com}

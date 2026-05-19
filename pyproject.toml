@@ -1,0 +1,47 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "diligence-bench"
+version = "0.1.0"
+description = "Public Harbor task suite and reference agent runner for diligence-bench."
+readme = "README.md"
+requires-python = ">=3.13,<3.14"
+license = "Apache-2.0"
+dependencies = [
+    "datasets>=2.20",
+    "httpx>=0.28",
+    "huggingface-hub>=0.30",
+    "litellm>=1.80",
+    "mcp[cli]>=1.27,<2",
+    "openai>=2.26,<3",
+    "openai-agents[modal]>=0.16",
+    "python-dotenv>=1.2",
+    "pyyaml>=6",
+    "rubric>=2.2,<3",
+    "tomli-w>=1.2",
+    "verifiers>=0.1.14",
+]
+
+[dependency-groups]
+dev = [
+    "pytest>=8,<9",
+    "pytest-anyio>=0.0.0",
+    "ruff>=0.12,<0.13",
+    "ty>=0.0.1a20",
+]
+
+[project.scripts]
+diligence-bench = "diligence_bench.cli:main"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/diligence_bench"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py313"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B", "SIM"]
+ignore = ["E501"]

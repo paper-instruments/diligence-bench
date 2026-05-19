@@ -1,0 +1,26 @@
+{
+  "hooks": {
+    "PostToolUse": [
+      {
+        "matcher": "Edit|Write",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "FILE=$(jq -r '.tool_input.file_path') && case \"$FILE\" in *.py) uv run ruff check --fix \"$FILE\" 2>/dev/null && uv run ruff format \"$FILE\" 2>/dev/null ;; esac || true"
+          }
+        ]
+      }
+    ],
+    "TaskCompleted": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "\"$CLAUDE_PROJECT_DIR\"/.claude/hooks/lint-changed-files.sh",
+            "statusMessage": "Linting changed files..."
+          }
+        ]
+      }
+    ]
+  }
+}
