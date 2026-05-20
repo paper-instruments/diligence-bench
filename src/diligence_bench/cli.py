@@ -23,13 +23,14 @@ _AGENT_DESCRIPTIONS: dict[str, str] = {
     "finance": "OpenAI Agents SDK SandboxAgent (system prompt + 5 skills)",
     "claude-code": "Claude Code CLI (vanilla, model picked via --models)",
     "codex": "Codex CLI (vanilla, model picked via --models)",
+    "gemini": "Gemini CLI (vanilla, model picked via --models)",
 }
 
 logger = logging.getLogger(__name__)
 
 
 def main(argv: list[str] | None = None) -> None:
-    load_dotenv()
+    load_dotenv(override=True)
     logging.basicConfig(
         level=logging.INFO,
         format="%(asctime)s %(levelname)s %(name)s: %(message)s",

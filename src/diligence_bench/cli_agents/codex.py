@@ -112,5 +112,5 @@ def _provider_overrides(model: str) -> list[str]:
         "-c",
         'model_providers.openrouter.env_key="OPENROUTER_API_KEY"',
         "-c",
-        'model_providers.openrouter.wire_api="chat"',
+        'model_providers.openrouter.wire_api="responses"',
     ]
