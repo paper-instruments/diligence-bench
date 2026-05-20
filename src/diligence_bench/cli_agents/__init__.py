@@ -27,6 +27,7 @@ from typing import Protocol
 from diligence_bench.cli_agents.base import CliAgentResult
 from diligence_bench.cli_agents.claude_code import run as run_claude_code
 from diligence_bench.cli_agents.codex import run as run_codex
+from diligence_bench.cli_agents.gemini import run as run_gemini
 
 
 class CliAgentRunner(Protocol):
@@ -43,6 +44,7 @@ class CliAgentRunner(Protocol):
 CLI_AGENTS: dict[str, CliAgentRunner] = {
     "claude-code": run_claude_code,
     "codex": run_codex,
+    "gemini": run_gemini,
 }
 
 __all__ = ["CLI_AGENTS", "CliAgentResult", "CliAgentRunner"]
