@@ -254,6 +254,8 @@ async def _run_agent(
                     next_input = _compact_input_items(
                         next_input, keep_recent=_KEEP_RECENT_TOOL_OUTPUTS
                     )
+                if turns_remaining <= _BATCH_TURNS and not await _read_answer(sandbox):
+                    next_input = _append_turn_budget_nudge(next_input, turns_remaining)
                 current_input = next_input
 
             if last_result is not None:
@@ -272,6 +274,27 @@ _KEEP_RECENT_TOOL_OUTPUTS = 8
 _TRIMMED_OUTPUT_STUB = (
     "[earlier tool output trimmed to fit context window — re-call the tool if you need it again]"
 )
+_TURN_BUDGET_NUDGE_SOFT = (
+    "You have used most of your turn budget and have not yet submitted your answer. "
+    "Begin writing your memo now using the final_answer tool. You can do a few more "
+    "targeted lookups if needed, but prioritize producing a complete memo with the "
+    "evidence you have. An incomplete memo with real figures scores far better than no memo."
+)
+_TURN_BUDGET_NUDGE_HARD = (
+    "FINAL WARNING: You are almost out of turns and have not submitted your answer. "
+    "Call final_answer immediately with your complete memo. Do not make any more tool calls. "
+    "Use the evidence you have already gathered."
+)
+
+
+def _append_turn_budget_nudge(input_items: Any, turns_remaining: int) -> list[Any]:
+    items = list(input_items) if isinstance(input_items, list) else [input_items]
+    nudge = (
+        _TURN_BUDGET_NUDGE_HARD if turns_remaining <= _BATCH_TURNS // 2 else _TURN_BUDGET_NUDGE_SOFT
+    )
+    items.append({"role": "user", "content": nudge})
+    logger.warning("injected turn-budget nudge (%d turns remaining)", turns_remaining)
+    return items
 
 
 def _estimated_input_chars(items: Sequence[Any]) -> int:
@@ -518,7 +541,7 @@ def _build_sandbox_agent_program(agent_name: str, model: str, max_turns: int):
 
         state["answer"] = answer
         state["completion"] = [{"role": "assistant", "content": answer}]
-        state["run_items"] = collector.spans
+        state["run_items"] = _serializable_run_items(getattr(result, "new_items", None))
         state["num_turns"] = _num_turns(result)
         state["info"] = dict(task["info"])
         return state
