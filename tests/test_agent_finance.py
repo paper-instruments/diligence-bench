@@ -17,7 +17,9 @@ from diligence_bench.tools import TOOLS
 
 
 def test_agent_registry_exposes_finance_builder() -> None:
-    assert {"finance": build_agent} == AGENTS
+    assert "finance" in AGENTS
+    assert AGENTS["finance"] is build_agent
+    assert "finance-pro" in AGENTS
 
 
 def test_build_agent_configures_finance_sandbox_agent(monkeypatch, tmp_path: Path) -> None:

@@ -113,6 +113,7 @@ async def run_eval(
         judge_sampling_args=judge_sampling_args,
     )
     semaphore = asyncio.Semaphore(concurrency)
+    halo_processor = _setup_halo_tracing(agent_name, writer.run_dir)
 
     already_done = sum(
         1
@@ -185,6 +186,8 @@ async def run_eval(
         return list(results)
     finally:
         progress.finish()
+        if halo_processor:
+            halo_processor.shutdown()
         await harness.teardown()
 
 
@@ -194,6 +197,8 @@ async def _run_agent(
     model: str,
     sandbox: Any,
     max_turns: int,
+    *,
+    span_collector: Any = None,
 ) -> Any:
     from contextlib import AsyncExitStack
 
@@ -218,38 +223,46 @@ async def _run_agent(
 
     error_handlers = {"max_turns": _compaction_handler}
 
-    async with AsyncExitStack() as stack:
-        for server in getattr(agent, "mcp_servers", None) or []:
-            await stack.enter_async_context(server)
+    if span_collector is not None:
+        span_collector.install()
+    try:
+        async with AsyncExitStack() as stack:
+            for server in getattr(agent, "mcp_servers", None) or []:
+                await stack.enter_async_context(server)
 
-        current_input: Any = instruction
-        aggregated_new_items: list[Any] = []
-        last_result: Any = None
-        turns_remaining = max_turns
-        while turns_remaining > 0:
-            batch = min(_BATCH_TURNS, turns_remaining)
-            result = await Runner.run(
-                agent,
-                input=current_input,
-                max_turns=batch,
-                run_config=run_config,
-                error_handlers=error_handlers,
-                context=final_answer_context,
-            )
-            last_result = result
-            aggregated_new_items.extend(getattr(result, "new_items", []) or [])
-            turns_remaining -= batch
-            if getattr(result, "final_output", None) is not _COMPACTION_SENTINEL:
-                break
-            next_input = result.to_input_list()
-            if _estimated_input_chars(next_input) > _COMPACTION_CHAR_BUDGET:
-                next_input = _compact_input_items(next_input, keep_recent=_KEEP_RECENT_TOOL_OUTPUTS)
-            current_input = next_input
+            current_input: Any = instruction
+            aggregated_new_items: list[Any] = []
+            last_result: Any = None
+            turns_remaining = max_turns
+            while turns_remaining > 0:
+                batch = min(_BATCH_TURNS, turns_remaining)
+                result = await Runner.run(
+                    agent,
+                    input=current_input,
+                    max_turns=batch,
+                    run_config=run_config,
+                    error_handlers=error_handlers,
+                    context=final_answer_context,
+                )
+                last_result = result
+                aggregated_new_items.extend(getattr(result, "new_items", []) or [])
+                turns_remaining -= batch
+                if getattr(result, "final_output", None) is not _COMPACTION_SENTINEL:
+                    break
+                next_input = result.to_input_list()
+                if _estimated_input_chars(next_input) > _COMPACTION_CHAR_BUDGET:
+                    next_input = _compact_input_items(
+                        next_input, keep_recent=_KEEP_RECENT_TOOL_OUTPUTS
+                    )
+                current_input = next_input
 
-        if last_result is not None:
-            with contextlib.suppress(AttributeError, TypeError):
-                last_result.new_items = aggregated_new_items  # type: ignore[attr-defined]
-        return last_result
+            if last_result is not None:
+                with contextlib.suppress(AttributeError, TypeError):
+                    last_result.new_items = aggregated_new_items  # type: ignore[attr-defined]
+            return last_result
+    finally:
+        if span_collector is not None:
+            span_collector.uninstall()
 
 
 _COMPACTION_SENTINEL = object()
@@ -449,6 +462,27 @@ def _num_turns(result: Any) -> int:
     return 0
 
 
+def _setup_halo_tracing(agent_name: str, run_dir: Path) -> Any:
+    if agent_name not in AGENTS:
+        return None
+    try:
+        from agents import add_trace_processor
+
+        from diligence_bench.halo_tracing import ExportContext, InferenceOtlpFileProcessor
+    except ImportError:
+        logger.debug("HALO tracing not available, skipping")
+        return None
+    traces_path = str(run_dir / "traces.jsonl")
+    ctx = ExportContext(
+        project_id=f"diligence-bench-{agent_name}",
+        service_name="diligence-bench",
+    )
+    processor = InferenceOtlpFileProcessor(traces_path, ctx=ctx)
+    add_trace_processor(processor)
+    logger.info("HALO tracing enabled: %s", traces_path)
+    return processor
+
+
 def harness_label(agent_name: str) -> str:
     if agent_name in CLI_AGENTS:
         return f"cli-{agent_name}"
@@ -457,8 +491,11 @@ def harness_label(agent_name: str) -> str:
 
 def _build_sandbox_agent_program(agent_name: str, model: str, max_turns: int):
     async def program(task: vf.Task, state: vf.State) -> vf.State:
+        from diligence_bench.tracing import SpanCollector
+
         task_dir = Path(str(task["info"]["task_dir"]))
         instruction = (task_dir / "instruction.md").read_text(encoding="utf-8")
+        collector = SpanCollector()
         with tempfile.TemporaryDirectory(prefix="diligence-bench-agent-") as tempdir:
             agent = AGENTS[agent_name](Path(tempdir))
             client = build_modal_sandbox_client()
@@ -468,13 +505,20 @@ def _build_sandbox_agent_program(agent_name: str, model: str, max_turns: int):
                 options=options,
             )
             async with sandbox:
-                result = await _run_agent(agent, instruction, model, sandbox, max_turns)
+                result = await _run_agent(
+                    agent,
+                    instruction,
+                    model,
+                    sandbox,
+                    max_turns,
+                    span_collector=collector,
+                )
                 await _materialize_final_answer_if_needed(sandbox, result)
                 answer = await _read_answer(sandbox)
 
         state["answer"] = answer
         state["completion"] = [{"role": "assistant", "content": answer}]
-        state["run_items"] = _serializable_run_items(getattr(result, "new_items", None))
+        state["run_items"] = collector.spans
         state["num_turns"] = _num_turns(result)
         state["info"] = dict(task["info"])
         return state

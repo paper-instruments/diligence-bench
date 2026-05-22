@@ -33,6 +33,13 @@ class FinalAnswerContext:
 async def final_answer(ctx: RunContextWrapper[FinalAnswerContext], memo: str) -> str:
     """Record your final memo. Call this exactly once when you are done; this writes the memo to /workspace/answer.md, which is what the grader reads."""
 
+    if not memo or not memo.strip():
+        return json.dumps(
+            {
+                "status": "rejected",
+                "error": "memo is empty — pass your full analysis text as the memo argument",
+            }
+        )
     sandbox = getattr(ctx.context, "sandbox", None)
     if sandbox is None:
         logger.warning("final_answer called without a sandbox in context")

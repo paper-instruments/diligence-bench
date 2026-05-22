@@ -19,6 +19,7 @@ _SYSTEM_PROMPT_PATH = _FINANCE_DIR / "system_prompt.md"
 _AGENTS_PATH = _FINANCE_DIR / "AGENTS.md"
 _SKILLS_DIR = _FINANCE_DIR / "skills"
 _MCP_TOOL_IDS = ("sec_edgar", "web_search")
+_SEC_EDGAR_TOOLS = ["sec_filings", "sec_filing_content", "sec_financials"]
 
 
 def build_agent(workdir: Path) -> SandboxAgent:
@@ -27,7 +28,13 @@ def build_agent(workdir: Path) -> SandboxAgent:
 
     instructions = _instructions()
     mcp_servers: list[MCPServer] = [
-        MCPServerStdio(name=tool_id, params=_mcp_stdio_params(tool_id, _tool_spec(tool_id)))
+        MCPServerStdio(
+            name=tool_id,
+            params=_mcp_stdio_params(tool_id, _tool_spec(tool_id)),
+            tool_filter={"allowed_tool_names": _SEC_EDGAR_TOOLS}
+            if tool_id == "sec_edgar"
+            else None,
+        )
         for tool_id in _MCP_TOOL_IDS
     ]
 

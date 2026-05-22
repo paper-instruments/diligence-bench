@@ -21,7 +21,8 @@ from diligence_bench.runner import DEFAULT_JUDGE_MODEL, harness_label, run_eval
 from diligence_bench.summary import print_summary
 
 _AGENT_DESCRIPTIONS: dict[str, str] = {
-    "finance": "OpenAI Agents SDK SandboxAgent (system prompt + 5 skills)",
+    "finance": "OpenAI Agents SDK SandboxAgent (baseline, system prompt + 5 skills)",
+    "finance-pro": "OpenAI Agents SDK SandboxAgent (optimized, extraction-focused + skills)",
     "claude-code": "Claude Code CLI (vanilla, model picked via --models)",
     "codex": "Codex CLI (vanilla, model picked via --models)",
     "gemini": "Gemini CLI (vanilla, model picked via --models)",
