@@ -157,6 +157,57 @@ async def sec_financials(identifier: str, statement: str = "balance_sheet") -> s
         return json.dumps({"error": str(exc)})
 
 
+@mcp.tool()
+async def sec_resolve_company(query: str) -> str:
+    """Resolve a company name, ticker, or CIK to its SEC identifiers. Returns ticker, CIK, and official company name."""
+
+    try:
+        context = _get_context()
+        cik = await context.client.resolve_cik(query)
+        submissions = await context.client.fetch_submissions(cik)
+        return json.dumps(
+            {
+                "cik": cik,
+                "name": submissions.get("name", ""),
+                "tickers": submissions.get("tickers", []),
+                "exchanges": submissions.get("exchanges", []),
+                "sic": submissions.get("sic", ""),
+                "sic_description": submissions.get("sicDescription", ""),
+            }
+        )
+    except Exception as exc:
+        logger.warning("sec_resolve_company failed for %s: %s", query, exc)
+        return json.dumps({"error": str(exc)})
+
+
+@mcp.tool()
+async def sec_filing_search(
+    identifier: str,
+    accession_number: str,
+    query: str,
+    context_chars: int = 500,
+) -> str:
+    """Search within a specific SEC filing for a keyword or phrase. Returns matching passages with surrounding context."""
+
+    try:
+        context = _get_context()
+        cik = await context.client.resolve_cik(identifier)
+        document = await context.client.fetch_filing_document(cik, accession_number)
+        text = _html_to_text(document.text)
+        results = _search_text(text, query, context_chars)
+        if not results:
+            return json.dumps({"matches": [], "note": f"No matches for {query!r} in this filing"})
+        return _truncate(json.dumps({"matches": results}), context.tool_output_char_budget)
+    except Exception as exc:
+        logger.warning(
+            "sec_filing_search failed for %s/%s: %s",
+            identifier,
+            accession_number,
+            exc,
+        )
+        return json.dumps({"error": str(exc)})
+
+
 def main() -> None:
     if any(arg in {"-h", "--help"} for arg in sys.argv[1:]):
         sys.stdout.write("Run this module as a FastMCP stdio server.\n")
@@ -330,6 +381,26 @@ def _normalize_item(item: str) -> str | None:
     if match is None:
         return None
     return match.group(1).upper()
+
+
+def _search_text(text: str, query: str, context_chars: int) -> list[dict[str, Any]]:
+    pattern = re.compile(re.escape(query), re.IGNORECASE)
+    results: list[dict[str, Any]] = []
+    seen_ranges: list[tuple[int, int]] = []
+    for match in pattern.finditer(text):
+        start = max(0, match.start() - context_chars)
+        end = min(len(text), match.end() + context_chars)
+        overlaps = any(
+            min(end, prev_end) - max(start, prev_start) > context_chars
+            for prev_start, prev_end in seen_ranges
+        )
+        if overlaps:
+            continue
+        seen_ranges.append((start, end))
+        results.append({"position": match.start(), "passage": text[start:end]})
+        if len(results) >= 10:
+            break
+    return results
 
 
 def _truncate(text: str, budget: int) -> str:

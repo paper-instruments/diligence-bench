@@ -248,13 +248,18 @@ async def _run_agent(
                 aggregated_new_items.extend(getattr(result, "new_items", []) or [])
                 turns_remaining -= batch
                 if getattr(result, "final_output", None) is not _COMPACTION_SENTINEL:
-                    break
+                    if await _read_answer(sandbox) or turns_remaining <= 0:
+                        break
+                    logger.warning(
+                        "agent stopped without answer.md (%d turns remaining); nudging",
+                        turns_remaining,
+                    )
                 next_input = result.to_input_list()
                 if _estimated_input_chars(next_input) > _COMPACTION_CHAR_BUDGET:
                     next_input = _compact_input_items(
                         next_input, keep_recent=_KEEP_RECENT_TOOL_OUTPUTS
                     )
-                if turns_remaining <= _BATCH_TURNS and not await _read_answer(sandbox):
+                if not await _read_answer(sandbox):
                     next_input = _append_turn_budget_nudge(next_input, turns_remaining)
                 current_input = next_input
 
@@ -509,7 +514,7 @@ def _setup_halo_tracing(agent_name: str, run_dir: Path) -> Any:
 def harness_label(agent_name: str) -> str:
     if agent_name in CLI_AGENTS:
         return f"cli-{agent_name}"
-    return "vf-harness"
+    return agent_name
 
 
 def _build_sandbox_agent_program(agent_name: str, model: str, max_turns: int):

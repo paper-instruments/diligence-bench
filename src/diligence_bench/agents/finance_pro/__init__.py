@@ -23,6 +23,7 @@ _SEC_EDGAR_TOOLS = [
     "sec_filings",
     "sec_filing_content",
     "sec_financials",
+    "sec_resolve_company",
     "sec_filing_search",
 ]
 

@@ -136,4 +136,6 @@ async def test_sec_edgar_server_registers_expected_tools() -> None:
         "sec_filings",
         "sec_filing_content",
         "sec_financials",
+        "sec_resolve_company",
+        "sec_filing_search",
     }
