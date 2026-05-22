@@ -39,13 +39,12 @@ def test_final_answer_is_function_tool() -> None:
     assert final_answer.name == FINAL_ANSWER_TOOL_NAME
 
 
-@pytest.mark.anyio
-async def test_final_answer_returns_memo_payload() -> None:
-    from diligence_bench.tools.final_answer import final_answer_payload
+def test_final_answer_tool_schema_requires_memo() -> None:
+    from diligence_bench.tools.final_answer import final_answer
 
-    result = final_answer_payload("memo text")
-
-    assert '"memo": "memo text"' in result
+    schema = cast(FunctionTool, final_answer).params_json_schema
+    assert "memo" in schema.get("properties", {})
+    assert "memo" in schema.get("required", [])
 
 
 @pytest.mark.anyio

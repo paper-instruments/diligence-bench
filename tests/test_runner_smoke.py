@@ -130,7 +130,7 @@ async def test_runner_writes_score_and_trajectory(tmp_path, monkeypatch):
 
 
 @pytest.mark.anyio
-async def test_runner_materializes_final_answer_tool_when_file_missing(tmp_path, monkeypatch):
+async def test_runner_falls_back_to_chat_text_when_tool_not_called(tmp_path, monkeypatch):
     rows = [
         {
             "prompt": [{"role": "user", "content": "Question"}],
@@ -155,13 +155,7 @@ async def test_runner_materializes_final_answer_tool_when_file_missing(tmp_path,
     )
     monkeypatch.setattr(
         "diligence_bench.runner._run_agent",
-        lambda *_, **__: _async_result(
-            _FakeResult(
-                "ignored",
-                [{"raw_item": {"name": "final_answer", "output": '{"memo": "Tool answer"}'}}],
-                [],
-            )
-        ),
+        lambda *_, **__: _async_result(_FakeResult("Chat-only answer", [], [])),
     )
     monkeypatch.setattr(
         "diligence_bench.runner.score_answer",
@@ -184,8 +178,8 @@ async def test_runner_materializes_final_answer_tool_when_file_missing(tmp_path,
         concurrency=1,
     )
 
-    assert results[0].answer == "Tool answer"
-    assert sandbox.answer == "Tool answer"
+    assert results[0].answer == "Chat-only answer"
+    assert sandbox.answer == "Chat-only answer"
 
 
 @pytest.mark.anyio
@@ -260,9 +254,10 @@ async def test_run_eval_marks_blank_file_answer_as_error(tmp_path, monkeypatch):
     monkeypatch.setattr(
         "diligence_bench.runner.build_modal_sandbox_options", lambda timeout: object()
     )
+    # No file answer AND no model final_output → real "no answer" failure.
     monkeypatch.setattr(
         "diligence_bench.runner._run_agent",
-        lambda *_, **__: _async_result(_FakeResult("Model answer only", [], [])),
+        lambda *_, **__: _async_result(_FakeResult("", [], [])),
     )
 
     results = await run_eval(
@@ -342,9 +337,7 @@ async def test_run_agent_connects_mcp_servers_before_runner_run(monkeypatch):
 
         async def __aenter__(self):
             self.connected = True
-            server_states.append(
-                {"name": self.name, "phase": "enter", "agent_running": False}
-            )
+            server_states.append({"name": self.name, "phase": "enter", "agent_running": False})
             return self
 
         async def __aexit__(self, *exc):
@@ -357,7 +350,7 @@ async def test_run_agent_connects_mcp_servers_before_runner_run(monkeypatch):
 
     captured = {}
 
-    async def fake_run(agent, *, input, max_turns, run_config):
+    async def fake_run(agent, *, input, max_turns, run_config, **_kwargs):
         del input, max_turns, run_config
         captured["agent"] = agent
         for server in agent.mcp_servers:
@@ -455,9 +448,7 @@ async def test_run_eval_resumes_completed_tasks(tmp_path, monkeypatch, caplog):
     assert len(second) == 3
     assert all(result.score == 0.5 for result in second)
     skip_logs = [
-        record.message
-        for record in caplog.records
-        if record.message.startswith("skip sample-")
+        record.message for record in caplog.records if record.message.startswith("skip sample-")
     ]
     assert len(skip_logs) == 3, f"expected 3 skip logs, got {skip_logs}"
     resume_logs = [record.message for record in caplog.records if "Resuming run" in record.message]

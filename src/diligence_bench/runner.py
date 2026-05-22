@@ -1,14 +1,14 @@
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import io
-import json
 import logging
 import os
 import tempfile
 from collections.abc import Mapping, Sequence
 from pathlib import Path
-from typing import Any, cast
+from typing import Any
 
 import verifiers.v1 as vf
 from agents.sandbox import WorkspaceReadNotFoundError
@@ -59,9 +59,11 @@ def build_harness(
             raise ValueError(f"task {dataset_id!r} is missing a non-empty rubric")
         agent_error = state.get("agent_error")
         if agent_error:
-            raise RuntimeError(str(agent_error))
+            state["diligence_error"] = str(agent_error)
+            return 0.0
         if not str(state.get("answer", "")).strip():
-            raise ValueError("agent produced no answer at /workspace/answer.md")
+            state["diligence_error"] = "agent produced no answer at /workspace/answer.md"
+            return 0.0
         query = _query_from_state(state)
         report = await score_answer(
             str(state.get("answer", "")),
@@ -197,22 +199,103 @@ async def _run_agent(
 
     from agents import OpenAIChatCompletionsModel, Runner
     from agents.run import RunConfig
+    from agents.run_error_handlers import RunErrorHandlerResult
     from agents.sandbox import SandboxRunConfig
     from openai import AsyncOpenAI
+
+    from diligence_bench.tools.final_answer import FinalAnswerContext
+
+    final_answer_context = FinalAnswerContext(sandbox=sandbox)
+
+    run_config = RunConfig(
+        model=_sdk_model(model, OpenAIChatCompletionsModel, AsyncOpenAI),
+        sandbox=SandboxRunConfig(session=sandbox),
+        workflow_name="diligence-bench eval",
+    )
+
+    async def _compaction_handler(_inp: Any) -> RunErrorHandlerResult:
+        return RunErrorHandlerResult(final_output=_COMPACTION_SENTINEL, include_in_history=False)
+
+    error_handlers = {"max_turns": _compaction_handler}
 
     async with AsyncExitStack() as stack:
         for server in getattr(agent, "mcp_servers", None) or []:
             await stack.enter_async_context(server)
-        return await Runner.run(
-            agent,
-            input=instruction,
-            max_turns=max_turns,
-            run_config=RunConfig(
-                model=_sdk_model(model, OpenAIChatCompletionsModel, AsyncOpenAI),
-                sandbox=SandboxRunConfig(session=sandbox),
-                workflow_name="diligence-bench eval",
-            ),
-        )
+
+        current_input: Any = instruction
+        aggregated_new_items: list[Any] = []
+        last_result: Any = None
+        turns_remaining = max_turns
+        while turns_remaining > 0:
+            batch = min(_BATCH_TURNS, turns_remaining)
+            result = await Runner.run(
+                agent,
+                input=current_input,
+                max_turns=batch,
+                run_config=run_config,
+                error_handlers=error_handlers,
+                context=final_answer_context,
+            )
+            last_result = result
+            aggregated_new_items.extend(getattr(result, "new_items", []) or [])
+            turns_remaining -= batch
+            if getattr(result, "final_output", None) is not _COMPACTION_SENTINEL:
+                break
+            next_input = result.to_input_list()
+            if _estimated_input_chars(next_input) > _COMPACTION_CHAR_BUDGET:
+                next_input = _compact_input_items(next_input, keep_recent=_KEEP_RECENT_TOOL_OUTPUTS)
+            current_input = next_input
+
+        if last_result is not None:
+            with contextlib.suppress(AttributeError, TypeError):
+                last_result.new_items = aggregated_new_items  # type: ignore[attr-defined]
+        return last_result
+
+
+_COMPACTION_SENTINEL = object()
+_BATCH_TURNS = 40
+_COMPACTION_CHAR_BUDGET = 600_000  # ~150K tokens, well under Gemini's 1M cap
+_KEEP_RECENT_TOOL_OUTPUTS = 8
+_TRIMMED_OUTPUT_STUB = (
+    "[earlier tool output trimmed to fit context window — re-call the tool if you need it again]"
+)
+
+
+def _estimated_input_chars(items: Sequence[Any]) -> int:
+    total = 0
+    for item in items:
+        if isinstance(item, Mapping):
+            for key in ("content", "output", "text"):
+                value = item.get(key)
+                if isinstance(value, str):
+                    total += len(value)
+                elif isinstance(value, list):
+                    for piece in value:
+                        if isinstance(piece, Mapping):
+                            text = piece.get("text") or piece.get("output") or ""
+                            if isinstance(text, str):
+                                total += len(text)
+    return total
+
+
+def _compact_input_items(items: Sequence[Any], *, keep_recent: int) -> list[Any]:
+    items_list = list(items)
+    tool_output_idxs = [
+        i
+        for i, it in enumerate(items_list)
+        if isinstance(it, Mapping) and it.get("type") == "function_call_output"
+    ]
+    trim_until = max(0, len(tool_output_idxs) - keep_recent)
+    targets = set(tool_output_idxs[:trim_until])
+    compacted: list[Any] = []
+    for i, item in enumerate(items_list):
+        if i in targets and isinstance(item, Mapping):
+            new_item = dict(item)
+            new_item["output"] = _TRIMMED_OUTPUT_STUB
+            compacted.append(new_item)
+        else:
+            compacted.append(item)
+    return compacted
 
 
 def _sdk_model(model: str, chat_model_cls: Any, client_cls: Any) -> Any:
@@ -263,9 +346,14 @@ async def _read_answer(sandbox: Any) -> str:
 async def _materialize_final_answer_if_needed(sandbox: Any, result: Any) -> None:
     if await _read_answer(sandbox):
         return
-    memo = _final_answer_from_items(getattr(result, "new_items", None))
-    if memo:
-        await sandbox.write(ANSWER_PATH, io.BytesIO(memo.encode("utf-8")))
+    final_output = getattr(result, "final_output", None)
+    if isinstance(final_output, str) and final_output.strip():
+        logger.warning(
+            "agent emitted final output without calling final_answer; "
+            "writing chat text to %s as fallback",
+            ANSWER_PATH,
+        )
+        await sandbox.write(ANSWER_PATH, io.BytesIO(final_output.strip().encode("utf-8")))
 
 
 def _result_from_state(
@@ -328,37 +416,10 @@ def _trajectory_from_state(state: Mapping[str, Any]) -> list[dict[str, Any]]:
 
 
 def _state_error(state: Mapping[str, Any]) -> str | None:
-    error = state.get("error")
+    error = state.get("diligence_error") or state.get("error")
     if error:
         return str(error)
     return None
-
-
-def _final_answer_from_items(items: object) -> str:
-    for item in _serializable_run_items(items):
-        raw = item.get("raw_item") if isinstance(item, Mapping) else None
-        if not isinstance(raw, Mapping):
-            raw = item
-        name = str(raw.get("name", "")) if isinstance(raw, Mapping) else ""
-        output = raw.get("output") if isinstance(raw, Mapping) else None
-        if name == "final_answer":
-            return _memo_from_tool_output(output)
-    return ""
-
-
-def _memo_from_tool_output(output: object) -> str:
-    if not output:
-        return ""
-    if isinstance(output, str):
-        try:
-            parsed = json.loads(output)
-        except json.JSONDecodeError:
-            return output
-        if isinstance(parsed, Mapping):
-            return str(parsed.get("memo", ""))
-    if isinstance(output, Mapping):
-        return str(cast(Mapping[str, Any], output).get("memo", ""))
-    return str(output)
 
 
 def _serializable_run_items(items: object) -> list[dict[str, Any]]:
@@ -484,9 +545,7 @@ class _Progress:
     ) -> None:
         self._done += 1
         score_part = f" score={score:.3f}" if score is not None else ""
-        logger.info(
-            "[%d/%d] %s %s%s", self._done, self._total, status, dataset_id, score_part
-        )
+        logger.info("[%d/%d] %s %s%s", self._done, self._total, status, dataset_id, score_part)
         self._render()
 
     def finish(self) -> None:
