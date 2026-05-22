@@ -16,6 +16,7 @@ from diligence_bench.agents import AGENTS
 from diligence_bench.cli_agents import CLI_AGENTS
 from diligence_bench.harbor import DiligenceBenchAdapter
 from diligence_bench.harbor.adapter import DEFAULT_VERIFIER_MODEL
+from diligence_bench.report import generate_report
 from diligence_bench.runner import DEFAULT_JUDGE_MODEL, harness_label, run_eval
 from diligence_bench.summary import print_summary
 
@@ -121,6 +122,10 @@ async def _run_eval_command(args: argparse.Namespace) -> None:
         append_ablation_row(output_dir / "ablations.csv", row)
     del all_results
     print_summary(output_dir / run_id, stream=sys.stdout)
+
+    report_path = generate_report(output_dir / run_id)
+    if report_path:
+        logger.info("HTML report: %s", report_path)
 
 
 def _judge_client(client_cls, judge_model: str):
