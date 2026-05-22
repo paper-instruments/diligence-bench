@@ -113,7 +113,6 @@ async def run_eval(
         judge_sampling_args=judge_sampling_args,
     )
     semaphore = asyncio.Semaphore(concurrency)
-    halo_processor = _setup_halo_tracing(agent_name, writer.run_dir)
 
     already_done = sum(
         1
@@ -186,8 +185,6 @@ async def run_eval(
         return list(results)
     finally:
         progress.finish()
-        if halo_processor:
-            halo_processor.shutdown()
         await harness.teardown()
 
 
@@ -488,27 +485,6 @@ def _num_turns(result: Any) -> int:
     if isinstance(raw_responses, Sequence):
         return len(raw_responses)
     return 0
-
-
-def _setup_halo_tracing(agent_name: str, run_dir: Path) -> Any:
-    if agent_name not in AGENTS:
-        return None
-    try:
-        from agents import add_trace_processor
-
-        from diligence_bench.halo_tracing import ExportContext, InferenceOtlpFileProcessor
-    except ImportError:
-        logger.debug("HALO tracing not available, skipping")
-        return None
-    traces_path = str(run_dir / "traces.jsonl")
-    ctx = ExportContext(
-        project_id=f"diligence-bench-{agent_name}",
-        service_name="diligence-bench",
-    )
-    processor = InferenceOtlpFileProcessor(traces_path, ctx=ctx)
-    add_trace_processor(processor)
-    logger.info("HALO tracing enabled: %s", traces_path)
-    return processor
 
 
 def harness_label(agent_name: str) -> str:
