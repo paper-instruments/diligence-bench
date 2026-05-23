@@ -12,6 +12,7 @@ from agents.sandbox import SandboxAgent
 from agents.sandbox.capabilities import Shell, Skills
 from agents.sandbox.entries import LocalDir
 
+from diligence_bench.agents._shell_caps import configure_shell
 from diligence_bench.tools import TOOLS
 
 _FINANCE_DIR = Path(__file__).parent
@@ -34,6 +35,7 @@ def build_agent(workdir: Path) -> SandboxAgent:
             tool_filter={"allowed_tool_names": _SEC_EDGAR_TOOLS}
             if tool_id == "sec_edgar"
             else None,
+            client_session_timeout_seconds=30.0,
         )
         for tool_id in _MCP_TOOL_IDS
     ]
@@ -44,7 +46,7 @@ def build_agent(workdir: Path) -> SandboxAgent:
         tools=[final_answer],
         mcp_servers=mcp_servers,
         capabilities=[
-            Shell(),
+            Shell(configure_tools=configure_shell),
             Skills(from_=LocalDir(src=_SKILLS_DIR)),
         ],
     )
