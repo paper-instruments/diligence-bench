@@ -1,15 +1,5 @@
-"""Function-tool wrapper for the SDK's ``apply_patch`` editor.
-
-The SDK ships ``SandboxApplyPatchTool`` as a freeform/custom-grammar tool, which
-only works with the OpenAI Responses API; the Chat Completions API rejects it
-("Hosted tools are not supported"). Providers that only speak Chat Completions
-(OpenRouter, Anthropic via OpenAI shim, etc.) therefore can't use the SDK's
-default Filesystem capability as-is.
-
-This module exposes the same parser + editor as a plain function tool. The
-underlying ``SandboxApplyPatchEditor`` is reused verbatim, so behavior is 1:1
-with the hosted version. Session lookup happens via the run context, since the
-sandbox is created after the agent is built.
+"""
+Function tool wrapper for the SDK's ``apply_patch`` editor.
 """
 
 from __future__ import annotations
