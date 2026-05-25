@@ -102,9 +102,9 @@ def _parse_legacy_repr(entry: dict[str, Any]) -> dict[str, str] | None:
         text = _extract_message_text(raw_tail)
         return {"type": "message", "content": text}
     if "ToolCallItem" in prefix:
-        name = _extract_re(r"name='([^']+)'", raw_tail, 500)
-        args = _extract_re(r"arguments='(\{.*?\})'", raw_tail, 2000)
-        call_id = _extract_re(r"call_id='(call_[^']+)'", item_str, len(item_str))
+        name = _extract_re(r", name='([^']+)', type='function_call'", raw_tail, len(raw_tail))
+        args = _extract_re(r"arguments='(.*?)', call_id=", raw_tail, len(raw_tail))
+        call_id = _extract_re(r"call_id='([^']+)'", raw_tail, len(raw_tail))
         return {"type": "tool_call", "name": name, "arguments": args, "call_id": call_id}
     if "ToolCallOutputItem" in prefix:
         output = _extract_tool_output(raw_tail)

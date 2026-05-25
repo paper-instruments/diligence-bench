@@ -7,13 +7,15 @@ from pathlib import Path
 from typing import Any
 
 from diligence_bench.agents.finance import build_agent as build_finance_agent
-from diligence_bench.agents.finance_pro import build_agent as build_finance_pro_agent
+from diligence_bench.agents.loop import build_agent as build_loop_agent
+from diligence_bench.agents.sandbox import build_agent as build_sandbox_agent
 
 AgentBuilder = Callable[[Path], Any]
 
 AGENTS: dict[str, AgentBuilder] = {
+    "loop": build_loop_agent,
+    "sandbox": build_sandbox_agent,
     "finance": build_finance_agent,
-    "finance-pro": build_finance_pro_agent,
 }
 
 __all__ = ["AGENTS", "AgentBuilder"]

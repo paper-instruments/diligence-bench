@@ -16,10 +16,9 @@ from diligence_bench.agents.finance import build_agent
 from diligence_bench.tools import TOOLS
 
 
-def test_agent_registry_exposes_finance_builder() -> None:
-    assert "finance" in AGENTS
+def test_agent_registry_exposes_three_harnesses() -> None:
     assert AGENTS["finance"] is build_agent
-    assert "finance-pro" in AGENTS
+    assert {"loop", "sandbox", "finance"}.issubset(AGENTS), AGENTS.keys()
 
 
 def test_build_agent_configures_finance_sandbox_agent(monkeypatch, tmp_path: Path) -> None:
@@ -53,7 +52,9 @@ def test_build_agent_configures_finance_sandbox_agent(monkeypatch, tmp_path: Pat
     assert isinstance(agent, SandboxAgent)
     assert agent.name == "diligence-bench-finance"
     assert "senior equity-research analyst" in str(agent.instructions)
-    assert agent.tools == [final_answer]
+    tool_names = {tool.name for tool in agent.tools}
+    assert "final_answer" in tool_names
+    assert "apply_patch" in tool_names
 
     assert len(agent.mcp_servers) == 2
     assert all(isinstance(server, MCPServerStdio) for server in agent.mcp_servers)

@@ -1,62 +1,17 @@
-"""Optimized finance-pro agent builder."""
+"""Shared MCPServerStdio construction for agent builders."""
 
 from __future__ import annotations
 
 import os
 from collections.abc import Mapping
-from pathlib import Path
 from typing import Any, cast
 
-from agents.mcp import MCPServer, MCPServerStdio, MCPServerStdioParams
-from agents.sandbox import SandboxAgent
-from agents.sandbox.capabilities import Shell, Skills
-from agents.sandbox.entries import LocalDir
+from agents.mcp import MCPServerStdioParams
 
-from diligence_bench.agents._shell_caps import configure_shell
 from diligence_bench.tools import TOOLS
 
-_DIR = Path(__file__).parent
-_SYSTEM_PROMPT_PATH = _DIR / "system_prompt.md"
-_AGENTS_PATH = _DIR / "AGENTS.md"
-_SKILLS_DIR = _DIR / "skills"
-_MCP_TOOL_IDS = ("sec_edgar", "web_search")
-_SEC_EDGAR_TOOLS = [
-    "sec_filings",
-    "sec_filing_content",
-    "sec_financials",
-    "sec_resolve_company",
-    "sec_filing_search",
-]
 
-
-def build_agent(workdir: Path) -> SandboxAgent:
-    from diligence_bench.tools.final_answer import final_answer
-
-    mcp_servers: list[MCPServer] = [
-        MCPServerStdio(
-            name=tool_id,
-            params=_mcp_stdio_params(tool_id, _tool_spec(tool_id)),
-            tool_filter={"allowed_tool_names": _SEC_EDGAR_TOOLS}
-            if tool_id == "sec_edgar"
-            else None,
-            client_session_timeout_seconds=30.0,
-        )
-        for tool_id in _MCP_TOOL_IDS
-    ]
-
-    return SandboxAgent(
-        name="diligence-bench-finance-pro",
-        instructions=_instructions(),
-        tools=[final_answer],
-        mcp_servers=mcp_servers,
-        capabilities=[
-            Shell(configure_tools=configure_shell),
-            Skills(from_=LocalDir(src=_SKILLS_DIR)),
-        ],
-    )
-
-
-def _tool_spec(tool_id: str) -> Mapping[str, Any]:
+def tool_spec(tool_id: str) -> Mapping[str, Any]:
     spec_factory = TOOLS[tool_id]
     spec = spec_factory() if callable(spec_factory) else spec_factory
     if not isinstance(spec, Mapping):
@@ -64,7 +19,7 @@ def _tool_spec(tool_id: str) -> Mapping[str, Any]:
     return spec
 
 
-def _mcp_stdio_params(tool_id: str, spec: Mapping[str, Any]) -> MCPServerStdioParams:
+def mcp_stdio_params(tool_id: str, spec: Mapping[str, Any]) -> MCPServerStdioParams:
     raw_params = spec.get("params")
     if raw_params is not None:
         if not isinstance(raw_params, Mapping):
@@ -95,13 +50,6 @@ def _mcp_stdio_params(tool_id: str, spec: Mapping[str, Any]) -> MCPServerStdioPa
     return cast(MCPServerStdioParams, params)
 
 
-def _instructions() -> str:
-    parts = [_SYSTEM_PROMPT_PATH.read_text(encoding="utf-8").strip()]
-    if _AGENTS_PATH.exists():
-        parts.append("# Always-loaded Rules\n\n" + _AGENTS_PATH.read_text(encoding="utf-8").strip())
-    return "\n\n---\n\n".join(parts)
-
-
 def _allowlisted_env(tool_id: str, raw_allowlist: object) -> dict[str, str]:
     if not isinstance(raw_allowlist, list) or not all(
         isinstance(key, str) for key in raw_allowlist
@@ -111,4 +59,4 @@ def _allowlisted_env(tool_id: str, raw_allowlist: object) -> dict[str, str]:
     return {key: os.environ[key] for key in keys if key in os.environ}
 
 
-__all__ = ["build_agent"]
+__all__ = ["tool_spec", "mcp_stdio_params"]
