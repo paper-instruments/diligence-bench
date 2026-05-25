@@ -362,15 +362,22 @@ async def test_run_agent_connects_mcp_servers_before_runner_run(monkeypatch):
         run_streamed = None
 
     monkeypatch.setattr(runner_module, "_sdk_model", lambda *_args, **_kwargs: "gpt-5")
-    monkeypatch.setitem(
-        sys.modules,
-        "agents",
-        SimpleNamespace(OpenAIChatCompletionsModel=object, Runner=FakeRunner),
+    fake_agents = SimpleNamespace(
+        OpenAIChatCompletionsModel=object,
+        Runner=FakeRunner,
+        RunContextWrapper=object,
+        function_tool=lambda **_: lambda fn: fn,
     )
+    monkeypatch.setitem(sys.modules, "agents", fake_agents)
     monkeypatch.setitem(
         sys.modules,
         "agents.run",
         SimpleNamespace(RunConfig=lambda **kwargs: kwargs),
+    )
+    monkeypatch.setitem(
+        sys.modules,
+        "agents.run_error_handlers",
+        SimpleNamespace(RunErrorHandlerResult=lambda **kwargs: kwargs),
     )
     monkeypatch.setitem(
         sys.modules,
@@ -379,8 +386,12 @@ async def test_run_agent_connects_mcp_servers_before_runner_run(monkeypatch):
     )
     monkeypatch.setitem(sys.modules, "openai", SimpleNamespace(AsyncOpenAI=object))
 
+    sandbox = SimpleNamespace(
+        read=lambda _path: (_ for _ in ()).throw(FileNotFoundError()),
+        write=lambda *_: _async_result(None),
+    )
     agent = FakeAgent()
-    result = await runner_module._run_agent(agent, "task", "gpt-5", object(), 5)
+    result = await runner_module._run_agent(agent, "task", "gpt-5", sandbox, 5)
 
     assert result.final_output == "ok"
     assert all(server.connected for server in agent.mcp_servers)

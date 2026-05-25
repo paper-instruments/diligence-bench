@@ -20,7 +20,7 @@ from diligence_bench.cli_agents import codex as codex_module
 
 
 def test_registry_lists_both_agents() -> None:
-    assert set(CLI_AGENTS) == {"claude-code", "codex"}
+    assert set(CLI_AGENTS) == {"claude-code", "codex", "gemini"}
 
 
 @pytest.mark.anyio
