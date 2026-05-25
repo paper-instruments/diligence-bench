@@ -132,4 +132,10 @@ async def test_sec_edgar_server_registers_expected_tools() -> None:
 
     tools = await server.mcp.list_tools()
     tool_names = {tool.name for tool in tools}
-    assert tool_names == {"sec_filings", "sec_filing_content", "sec_financials"}
+    assert tool_names == {
+        "sec_filings",
+        "sec_filing_content",
+        "sec_financials",
+        "sec_resolve_company",
+        "sec_filing_search",
+    }

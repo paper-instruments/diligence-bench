@@ -20,7 +20,7 @@ from diligence_bench.tools.sec_edgar.edgar_client import (
 
 logger = logging.getLogger(__name__)
 
-DEFAULT_TOOL_OUTPUT_CHAR_BUDGET = 8000
+DEFAULT_TOOL_OUTPUT_CHAR_BUDGET = 16000
 TRUNCATION_SENTINEL = "... [truncated; use bash with grep -A/-B /path to inspect]"
 STATEMENT_CONCEPTS = {
     "balance_sheet": {
@@ -100,7 +100,7 @@ async def sec_filing_content(
     accession_number: str,
     item: str = "",
 ) -> str:
-    """Fetch SEC filing content by ticker/CIK and accession number."""
+    """Fetch SEC filing content. Use `item` for sections: "Item 7", "Note 12", "Footnote 5"."""
 
     try:
         context = _get_context()
@@ -112,8 +112,8 @@ async def sec_filing_content(
             if section is None:
                 return json.dumps(
                     {
-                        "error": f"Item {item!r} not found",
-                        "available_items": _available_items(text),
+                        "error": f"Section {item!r} not found",
+                        "available_sections": _available_sections(text),
                     }
                 )
             text = section
@@ -154,6 +154,57 @@ async def sec_financials(identifier: str, statement: str = "balance_sheet") -> s
         return _truncate(json.dumps(payload), context.tool_output_char_budget)
     except Exception as exc:
         logger.warning("sec_financials failed for %s: %s", identifier, exc)
+        return json.dumps({"error": str(exc)})
+
+
+@mcp.tool()
+async def sec_resolve_company(query: str) -> str:
+    """Resolve a company name, ticker, or CIK to its SEC identifiers. Returns ticker, CIK, and official company name."""
+
+    try:
+        context = _get_context()
+        cik = await context.client.resolve_cik(query)
+        submissions = await context.client.fetch_submissions(cik)
+        return json.dumps(
+            {
+                "cik": cik,
+                "name": submissions.get("name", ""),
+                "tickers": submissions.get("tickers", []),
+                "exchanges": submissions.get("exchanges", []),
+                "sic": submissions.get("sic", ""),
+                "sic_description": submissions.get("sicDescription", ""),
+            }
+        )
+    except Exception as exc:
+        logger.warning("sec_resolve_company failed for %s: %s", query, exc)
+        return json.dumps({"error": str(exc)})
+
+
+@mcp.tool()
+async def sec_filing_search(
+    identifier: str,
+    accession_number: str,
+    query: str,
+    context_chars: int = 500,
+) -> str:
+    """Search within a specific SEC filing for a keyword or phrase. Returns matching passages with surrounding context."""
+
+    try:
+        context = _get_context()
+        cik = await context.client.resolve_cik(identifier)
+        document = await context.client.fetch_filing_document(cik, accession_number)
+        text = _html_to_text(document.text)
+        results = _search_text(text, query, context_chars)
+        if not results:
+            return json.dumps({"matches": [], "note": f"No matches for {query!r} in this filing"})
+        return _truncate(json.dumps({"matches": results}), context.tool_output_char_budget)
+    except Exception as exc:
+        logger.warning(
+            "sec_filing_search failed for %s/%s: %s",
+            identifier,
+            accession_number,
+            exc,
+        )
         return json.dumps({"error": str(exc)})
 
 
@@ -274,12 +325,30 @@ def _html_to_text(raw: str) -> str:
 
 
 def _extract_item_section(text: str, item: str) -> str | None:
+    note_match = re.search(r"(?i)(?:notes?|footnotes?)\s*(\d+)", item)
+    if note_match:
+        num = note_match.group(1)
+        return _extract_heading_section(
+            text,
+            re.compile(rf"(?im)^\s*(?:notes?|footnotes?)\s+{re.escape(num)}\b[^\n]*"),
+            re.compile(r"(?im)^\s*(?:notes?|footnotes?)\s+\d+\b[^\n]*"),
+        )
+
     target = _normalize_item(item)
     if target is None:
         return None
+    return _extract_heading_section(
+        text,
+        re.compile(rf"(?im)^\s*item\s+{re.escape(target)}\.?\b[^\n]*"),
+        re.compile(r"(?im)^\s*item\s+\d{1,2}[A-Z]?\.?\b[^\n]*"),
+    )
 
-    heading_pattern = re.compile(rf"(?im)^\s*item\s+{re.escape(target)}\.?\b[^\n]*")
-    next_heading_pattern = re.compile(r"(?im)^\s*item\s+\d{1,2}[A-Z]?\.?\b[^\n]*")
+
+def _extract_heading_section(
+    text: str,
+    heading_pattern: re.Pattern[str],
+    next_heading_pattern: re.Pattern[str],
+) -> str | None:
     best_section = ""
     for match in heading_pattern.finditer(text):
         next_match = next_heading_pattern.search(text, match.end())
@@ -290,17 +359,21 @@ def _extract_item_section(text: str, item: str) -> str | None:
     return best_section or None
 
 
-def _available_items(text: str) -> list[str]:
-    pattern = re.compile(r"(?im)^\s*(item\s+\d{1,2}[A-Z]?\.?[^\n]{0,120})")
+def _available_sections(text: str) -> list[str]:
+    patterns = [
+        re.compile(r"(?im)^\s*(item\s+\d{1,2}[A-Z]?\.?[^\n]{0,120})"),
+        re.compile(r"(?im)^\s*((?:notes?|footnotes?)\s+\d+[^\n]{0,120})"),
+    ]
     seen: set[str] = set()
-    items: list[str] = []
-    for match in pattern.finditer(text):
-        item = re.sub(r"\s+", " ", match.group(1)).strip()
-        key = item.lower()
-        if key not in seen:
-            seen.add(key)
-            items.append(item)
-    return items[:25]
+    sections: list[str] = []
+    for pattern in patterns:
+        for match in pattern.finditer(text):
+            section = re.sub(r"\s+", " ", match.group(1)).strip()
+            key = section.lower()
+            if key not in seen:
+                seen.add(key)
+                sections.append(section)
+    return sections[:30]
 
 
 def _normalize_item(item: str) -> str | None:
@@ -308,6 +381,26 @@ def _normalize_item(item: str) -> str | None:
     if match is None:
         return None
     return match.group(1).upper()
+
+
+def _search_text(text: str, query: str, context_chars: int) -> list[dict[str, Any]]:
+    pattern = re.compile(re.escape(query), re.IGNORECASE)
+    results: list[dict[str, Any]] = []
+    seen_ranges: list[tuple[int, int]] = []
+    for match in pattern.finditer(text):
+        start = max(0, match.start() - context_chars)
+        end = min(len(text), match.end() + context_chars)
+        overlaps = any(
+            min(end, prev_end) - max(start, prev_start) > context_chars
+            for prev_start, prev_end in seen_ranges
+        )
+        if overlaps:
+            continue
+        seen_ranges.append((start, end))
+        results.append({"position": match.start(), "passage": text[start:end]})
+        if len(results) >= 10:
+            break
+    return results
 
 
 def _truncate(text: str, budget: int) -> str:
