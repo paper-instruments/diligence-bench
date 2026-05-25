@@ -47,52 +47,14 @@ def _parse_trajectory(raw: list[Any]) -> list[dict[str, str]]:
             continue
         if entry.get("item_type") == "cli_subprocess":
             timeline.append(_parse_cli_item(entry))
-        elif _is_structured_span(entry):
-            timeline.append(_parse_structured_span(entry))
         elif "item" in entry:
-            parsed = _parse_legacy_repr(entry)
+            parsed = _parse_run_item_repr(entry)
             if parsed:
                 timeline.append(parsed)
     return timeline
 
 
-def _is_structured_span(entry: dict[str, Any]) -> bool:
-    return entry.get("type") in ("tool_call", "message", "agent")
-
-
-def _parse_structured_span(entry: dict[str, Any]) -> dict[str, str]:
-    span_type = entry.get("type", "")
-    if span_type == "tool_call":
-        return {
-            "type": "tool_call",
-            "name": str(entry.get("name", "")),
-            "arguments": str(entry.get("input", "")),
-            "output": str(entry.get("output", "")),
-            "call_id": str(entry.get("call_id", "")),
-            "error": str(entry.get("error") or ""),
-            "started_at": str(entry.get("started_at") or ""),
-            "ended_at": str(entry.get("ended_at") or ""),
-        }
-    if span_type == "message":
-        return {
-            "type": "message",
-            "content": str(entry.get("content", "")),
-            "model": str(entry.get("model", "")),
-            "input_tokens": str(entry.get("input_tokens") or ""),
-            "output_tokens": str(entry.get("output_tokens") or ""),
-            "started_at": str(entry.get("started_at") or ""),
-            "ended_at": str(entry.get("ended_at") or ""),
-        }
-    return {
-        "type": "agent",
-        "name": str(entry.get("name", "")),
-        "started_at": str(entry.get("started_at") or ""),
-        "ended_at": str(entry.get("ended_at") or ""),
-    }
-
-
-def _parse_legacy_repr(entry: dict[str, Any]) -> dict[str, str] | None:
-    """Parse old repr()-based trajectory items for backward compatibility."""
+def _parse_run_item_repr(entry: dict[str, Any]) -> dict[str, str] | None:
     item_str = str(entry.get("item", ""))
     prefix = item_str.split("(")[0] if "(" in item_str else ""
     raw_start = item_str.find("raw_item=")

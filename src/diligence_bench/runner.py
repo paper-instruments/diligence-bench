@@ -194,8 +194,6 @@ async def _run_agent(
     model: str,
     sandbox: Any,
     max_turns: int,
-    *,
-    span_collector: Any = None,
 ) -> Any:
     from contextlib import AsyncExitStack
 
@@ -220,53 +218,45 @@ async def _run_agent(
 
     error_handlers = {"max_turns": _compaction_handler}
 
-    if span_collector is not None:
-        span_collector.install()
-    try:
-        async with AsyncExitStack() as stack:
-            for server in getattr(agent, "mcp_servers", None) or []:
-                await stack.enter_async_context(server)
+    async with AsyncExitStack() as stack:
+        for server in getattr(agent, "mcp_servers", None) or []:
+            await stack.enter_async_context(server)
 
-            current_input: Any = instruction
-            aggregated_new_items: list[Any] = []
-            last_result: Any = None
-            turns_remaining = max_turns
-            while turns_remaining > 0:
-                batch = min(_BATCH_TURNS, turns_remaining)
-                result = await Runner.run(
-                    agent,
-                    input=current_input,
-                    max_turns=batch,
-                    run_config=run_config,
-                    error_handlers=error_handlers,
-                    context=final_answer_context,
+        current_input: Any = instruction
+        aggregated_new_items: list[Any] = []
+        last_result: Any = None
+        turns_remaining = max_turns
+        while turns_remaining > 0:
+            batch = min(_BATCH_TURNS, turns_remaining)
+            result = await Runner.run(
+                agent,
+                input=current_input,
+                max_turns=batch,
+                run_config=run_config,
+                error_handlers=error_handlers,
+                context=final_answer_context,
+            )
+            last_result = result
+            aggregated_new_items.extend(getattr(result, "new_items", []) or [])
+            turns_remaining -= batch
+            if getattr(result, "final_output", None) is not _COMPACTION_SENTINEL:
+                if await _read_answer(sandbox) or turns_remaining <= 0:
+                    break
+                logger.warning(
+                    "agent stopped without answer.md (%d turns remaining); nudging",
+                    turns_remaining,
                 )
-                last_result = result
-                aggregated_new_items.extend(getattr(result, "new_items", []) or [])
-                turns_remaining -= batch
-                if getattr(result, "final_output", None) is not _COMPACTION_SENTINEL:
-                    if await _read_answer(sandbox) or turns_remaining <= 0:
-                        break
-                    logger.warning(
-                        "agent stopped without answer.md (%d turns remaining); nudging",
-                        turns_remaining,
-                    )
-                next_input = result.to_input_list()
-                if _estimated_input_chars(next_input) > _COMPACTION_CHAR_BUDGET:
-                    next_input = _compact_input_items(
-                        next_input, keep_recent=_KEEP_RECENT_TOOL_OUTPUTS
-                    )
-                if not await _read_answer(sandbox):
-                    next_input = _append_turn_budget_nudge(next_input, turns_remaining)
-                current_input = next_input
+            next_input = result.to_input_list()
+            if _estimated_input_chars(next_input) > _COMPACTION_CHAR_BUDGET:
+                next_input = _compact_input_items(next_input, keep_recent=_KEEP_RECENT_TOOL_OUTPUTS)
+            if not await _read_answer(sandbox):
+                next_input = _append_turn_budget_nudge(next_input, turns_remaining)
+            current_input = next_input
 
-            if last_result is not None:
-                with contextlib.suppress(AttributeError, TypeError):
-                    last_result.new_items = aggregated_new_items  # type: ignore[attr-defined]
-            return last_result
-    finally:
-        if span_collector is not None:
-            span_collector.uninstall()
+        if last_result is not None:
+            with contextlib.suppress(AttributeError, TypeError):
+                last_result.new_items = aggregated_new_items  # type: ignore[attr-defined]
+        return last_result
 
 
 _COMPACTION_SENTINEL = object()
@@ -495,11 +485,8 @@ def harness_label(agent_name: str) -> str:
 
 def _build_sandbox_agent_program(agent_name: str, model: str, max_turns: int):
     async def program(task: vf.Task, state: vf.State) -> vf.State:
-        from diligence_bench.tracing import SpanCollector
-
         task_dir = Path(str(task["info"]["task_dir"]))
         instruction = (task_dir / "instruction.md").read_text(encoding="utf-8")
-        collector = SpanCollector()
         with tempfile.TemporaryDirectory(prefix="diligence-bench-agent-") as tempdir:
             agent = AGENTS[agent_name](Path(tempdir))
             client = build_modal_sandbox_client()
@@ -515,7 +502,6 @@ def _build_sandbox_agent_program(agent_name: str, model: str, max_turns: int):
                     model,
                     sandbox,
                     max_turns,
-                    span_collector=collector,
                 )
                 await _materialize_final_answer_if_needed(sandbox, result)
                 answer = await _read_answer(sandbox)
