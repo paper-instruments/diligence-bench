@@ -9,9 +9,6 @@ WorkspacePersistence = Literal["tar", "snapshot_filesystem", "snapshot_directory
 # benchmark tasks, which changes the difficulty of later examples.
 DEFAULT_WORKSPACE_PERSISTENCE: WorkspacePersistence = "tar"
 
-# Base sandbox image gives agents the http + html tools they reach for on
-# every diligence task. Without these, models burn turns probing for curl,
-# requests, bs4 before falling back to provided MCP tools.
 SANDBOX_IMAGE_BASE = "python:3.14-slim"
 SANDBOX_APT_PACKAGES = ("bash", "curl", "jq")
 SANDBOX_PIP_PACKAGES = ("requests", "beautifulsoup4", "lxml")
