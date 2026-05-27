@@ -1,4 +1,4 @@
-"""Finance harness (H3): SEC filing tools, skills, and domain prompt."""
+"""Finance harness (H3): SEC filing tools and domain prompt."""
 
 from __future__ import annotations
 
@@ -6,8 +6,7 @@ from pathlib import Path
 
 from agents.mcp import MCPServer, MCPServerStdio
 from agents.sandbox import SandboxAgent
-from agents.sandbox.capabilities import Shell, Skills
-from agents.sandbox.entries import LocalDir
+from agents.sandbox.capabilities import Shell
 
 from diligence_bench.agents._mcp import mcp_stdio_params, tool_spec
 from diligence_bench.agents._shell_caps import configure_shell
@@ -15,7 +14,6 @@ from diligence_bench.agents._shell_caps import configure_shell
 _DIR = Path(__file__).parent
 _SYSTEM_PROMPT_PATH = _DIR / "system_prompt.md"
 _AGENTS_PATH = _DIR / "AGENTS.md"
-_SKILLS_DIR = _DIR / "skills"
 _MCP_TOOL_IDS = ("sec_edgar", "web_search")
 _SEC_EDGAR_TOOLS = [
     "sec_filings",
@@ -47,10 +45,7 @@ def build_agent(workdir: Path) -> SandboxAgent:
         instructions=_instructions(),
         tools=[final_answer, apply_patch],
         mcp_servers=mcp_servers,
-        capabilities=[
-            Shell(configure_tools=configure_shell),
-            Skills(from_=LocalDir(src=_SKILLS_DIR)),
-        ],
+        capabilities=[Shell(configure_tools=configure_shell)],
     )
 
 

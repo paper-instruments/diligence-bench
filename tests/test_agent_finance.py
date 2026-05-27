@@ -8,7 +8,6 @@ from agents import function_tool
 from agents.mcp import MCPServerStdio
 from agents.sandbox import SandboxAgent
 from agents.sandbox.capabilities import Shell, Skills
-from agents.sandbox.entries import LocalDir
 
 import diligence_bench.tools.final_answer as final_answer_module
 from diligence_bench.agents import AGENTS
@@ -65,20 +64,4 @@ def test_build_agent_configures_finance_sandbox_agent(monkeypatch, tmp_path: Pat
     assert second_server.params.env == {"EXA_API_KEY": "test"}
 
     assert any(isinstance(capability, Shell) for capability in agent.capabilities)
-
-    skills_capabilities = [
-        capability for capability in agent.capabilities if isinstance(capability, Skills)
-    ]
-    assert len(skills_capabilities) == 1
-
-    local_dir = cast(LocalDir, skills_capabilities[0].from_)
-    skills_root = local_dir.src
-    assert skills_root is not None
-    skill_names = {path.parent.name for path in skills_root.glob("*/SKILL.md")}
-    assert skill_names == {
-        "equity-research-memo-format",
-        "financial-claim-grounding",
-        "risk-assessment-structure",
-        "sec-filing-citation-discipline",
-        "stop-slop",
-    }
+    assert not any(isinstance(capability, Skills) for capability in agent.capabilities)

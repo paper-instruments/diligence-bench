@@ -86,4 +86,3 @@ Before submitting:
 
 1. **Verify figures.** Every number in the memo should trace to a source you actually read. If you cited a figure from memory or inference, confirm it or flag it as estimated.
 2. **Check risk completeness.** Re-read the question and confirm your risk assessment addresses every dimension the question raises. Missing an explicitly asked-about risk is worse than a minor factual gap.
-3. Run the memo through the `stop-slop` skill.
