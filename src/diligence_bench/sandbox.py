@@ -9,11 +9,16 @@ WorkspacePersistence = Literal["tar", "snapshot_filesystem", "snapshot_directory
 # benchmark tasks, which changes the difficulty of later examples.
 DEFAULT_WORKSPACE_PERSISTENCE: WorkspacePersistence = "tar"
 
+SANDBOX_IMAGE_BASE = "python:3.14-slim"
+SANDBOX_APT_PACKAGES = ("bash", "curl", "jq")
+SANDBOX_PIP_PACKAGES = ("requests", "beautifulsoup4", "lxml")
+
 
 def build_modal_sandbox_client() -> Any:
     from agents.extensions.sandbox import ModalSandboxClient
+    from agents.extensions.sandbox.modal.sandbox import ModalImageSelector
 
-    return ModalSandboxClient()
+    return ModalSandboxClient(image=ModalImageSelector.from_image(_build_sandbox_image()))
 
 
 def build_modal_sandbox_options(timeout: int = 3600) -> Any:
@@ -24,6 +29,16 @@ def build_modal_sandbox_options(timeout: int = 3600) -> Any:
         workspace_persistence=_workspace_persistence(),
         sandbox_create_timeout_s=_optional_float("MODAL_SANDBOX_CREATE_TIMEOUT"),
         timeout=timeout,
+    )
+
+
+def _build_sandbox_image() -> Any:
+    import modal
+
+    return (
+        modal.Image.from_registry(SANDBOX_IMAGE_BASE)
+        .apt_install(*SANDBOX_APT_PACKAGES)
+        .pip_install(*SANDBOX_PIP_PACKAGES)
     )
 
 
