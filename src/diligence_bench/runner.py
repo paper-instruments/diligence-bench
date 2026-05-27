@@ -27,7 +27,7 @@ from diligence_bench.sandbox import (
 logger = logging.getLogger(__name__)
 
 ANSWER_PATH = Path("/workspace/answer.md")
-DEFAULT_JUDGE_MODEL = "google/gemini-3-flash-preview"
+DEFAULT_JUDGE_MODEL = "openai/gpt-5.5"
 
 
 def build_harness(

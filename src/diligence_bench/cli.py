@@ -105,7 +105,7 @@ async def _run_eval_command(args: argparse.Namespace) -> None:
             run_id=run_id,
             examples=args.examples,
             concurrency=args.concurrency,
-            judge_sampling_args={"temperature": 0.2, "reasoning": {"effort": "minimal"}},
+            judge_sampling_args={"temperature": 1.0, "reasoning": {"effort": "minimal"}},
             progress_stream=sys.stderr,
         )
         all_results.extend(results)

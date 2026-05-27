@@ -16,7 +16,7 @@ from diligence_bench.dataset import load_diligence_bench
 logger = logging.getLogger(__name__)
 
 DEFAULT_OUTPUT_DIR = Path("datasets/diligence-bench")
-DEFAULT_VERIFIER_MODEL = "openrouter/google/gemini-3-flash-preview"
+DEFAULT_VERIFIER_MODEL = "openrouter/openai/gpt-5.5"
 TEMPLATE_DIR = Path(__file__).parent / "template"
 TOOLS_DIR = Path(__file__).resolve().parents[1] / "tools"
 ANSWER_PATH = "/workspace/answer.md"
@@ -156,7 +156,7 @@ def _write_docker_compose(task_dir: Path) -> None:
                     "EXA_API_KEY=${EXA_API_KEY:-}",
                     "OPENAI_API_KEY=${OPENAI_API_KEY:-}",
                     "OPENROUTER_API_KEY=${OPENROUTER_API_KEY:-}",
-                    "MODEL_NAME=${MODEL_NAME:-openrouter/google/gemini-3-flash-preview}",
+                    "MODEL_NAME=${MODEL_NAME:-openrouter/openai/gpt-5.5}",
                     "SEC_USER_AGENT=${SEC_USER_AGENT:-The LLM Data Company diligence-bench contact@example.com}",
                     "DILIGENCE_BENCH_WEB_FETCH_WRITE=1",
                 ],
