@@ -72,7 +72,7 @@ async def _grade(
 
 
 def _make_generate_fn():
-    model = os.getenv("MODEL_NAME", "google/gemini-3-flash-preview")
+    model = os.getenv("MODEL_NAME", "openai/gpt-5.5")
     api_key = os.getenv("OPENAI_API_KEY") or os.getenv("OPENROUTER_API_KEY")
 
     async def generate(system_prompt: str, user_prompt: str, **_kwargs: Any) -> OneShotOutput:
@@ -84,7 +84,7 @@ def _make_generate_fn():
                 {"role": "user", "content": user_prompt},
             ],
             response_format={"type": "json_object"},
-            temperature=0.2,
+            temperature=1.0,
         )
         if inspect.isawaitable(response):
             response = await response

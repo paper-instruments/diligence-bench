@@ -10,3 +10,4 @@ datasets/*
 !datasets/.gitkeep
 results/*
 !results/.gitkeep
+logs/
