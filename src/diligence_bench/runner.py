@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
-import io
 import logging
 import os
 import tempfile
@@ -281,15 +280,12 @@ _TRIMMED_OUTPUT_STUB = (
     "[earlier tool output trimmed to fit context window — re-call the tool if you need it again]"
 )
 _TURN_BUDGET_NUDGE_SOFT = (
-    "You have used most of your turn budget and have not yet submitted your answer. "
-    "Begin writing your memo now using the final_answer tool. You can do a few more "
-    "targeted lookups if needed, but prioritize producing a complete memo with the "
-    "evidence you have. An incomplete memo with real figures scores far better than no memo."
+    "You stopped without writing your final memo to /workspace/answer.md. "
+    "Write the complete memo there now."
 )
 _TURN_BUDGET_NUDGE_HARD = (
-    "FINAL WARNING: You are almost out of turns and have not submitted your answer. "
-    "Call final_answer immediately with your complete memo. Do not make any more tool calls. "
-    "Use the evidence you have already gathered."
+    "You are almost out of turns and have not written your memo to "
+    "/workspace/answer.md. Write it now."
 )
 
 
@@ -392,19 +388,6 @@ async def _read_answer(sandbox: Any) -> str:
     if isinstance(raw, bytes):
         return raw.decode("utf-8", errors="replace").strip()
     return str(raw).strip()
-
-
-async def _materialize_final_answer_if_needed(sandbox: Any, result: Any) -> None:
-    if await _read_answer(sandbox):
-        return
-    final_output = getattr(result, "final_output", None)
-    if isinstance(final_output, str) and final_output.strip():
-        logger.warning(
-            "agent emitted final output without calling final_answer; "
-            "writing chat text to %s as fallback",
-            ANSWER_PATH,
-        )
-        await sandbox.write(ANSWER_PATH, io.BytesIO(final_output.strip().encode("utf-8")))
 
 
 def _result_from_state(
@@ -532,7 +515,6 @@ def _build_sandbox_agent_program(
                     max_turns,
                     sampling_policy,
                 )
-                await _materialize_final_answer_if_needed(sandbox, result)
                 answer = await _read_answer(sandbox)
 
         state["answer"] = answer

@@ -4,12 +4,10 @@ import sys
 from pathlib import Path
 from typing import cast
 
-from agents import function_tool
 from agents.mcp import MCPServerStdio
 from agents.sandbox import SandboxAgent
 from agents.sandbox.capabilities import Shell, Skills
 
-import diligence_bench.tools.final_answer as final_answer_module
 from diligence_bench.agents import AGENTS
 from diligence_bench.agents.finance import build_agent
 from diligence_bench.tools import TOOLS
@@ -21,12 +19,6 @@ def test_agent_registry_exposes_three_harnesses() -> None:
 
 
 def test_build_agent_configures_finance_sandbox_agent(monkeypatch, tmp_path: Path) -> None:
-    @function_tool
-    def final_answer(text: str) -> str:
-        """Record the final memo text."""
-        return text
-
-    monkeypatch.setattr(final_answer_module, "final_answer", final_answer, raising=False)
     monkeypatch.setitem(
         TOOLS,
         "sec_edgar",
@@ -52,7 +44,7 @@ def test_build_agent_configures_finance_sandbox_agent(monkeypatch, tmp_path: Pat
     assert agent.name == "diligence-bench-finance"
     assert "senior equity-research analyst" in str(agent.instructions)
     tool_names = {tool.name for tool in agent.tools}
-    assert "final_answer" in tool_names
+    assert "final_answer" not in tool_names
     assert "apply_patch" in tool_names
 
     assert len(agent.mcp_servers) == 2

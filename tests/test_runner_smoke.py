@@ -130,7 +130,9 @@ async def test_runner_writes_score_and_trajectory(tmp_path, monkeypatch):
 
 
 @pytest.mark.anyio
-async def test_runner_falls_back_to_chat_text_when_tool_not_called(tmp_path, monkeypatch):
+async def test_runner_scores_zero_when_answer_file_is_empty(tmp_path, monkeypatch):
+    """No chat-text fallback: an empty /workspace/answer.md is an error."""
+
     rows = [
         {
             "prompt": [{"role": "user", "content": "Question"}],
@@ -157,16 +159,6 @@ async def test_runner_falls_back_to_chat_text_when_tool_not_called(tmp_path, mon
         "diligence_bench.runner._run_agent",
         lambda *_, **__: _async_result(_FakeResult("Chat-only answer", [], [])),
     )
-    monkeypatch.setattr(
-        "diligence_bench.runner.score_answer",
-        lambda *_, **__: _async_result(
-            type(
-                "Report",
-                (),
-                {"score": 1.0, "section_scores": {"memo": 1.0}, "verdicts": []},
-            )()
-        ),
-    )
 
     results = await run_eval(
         agent_name="finance",
@@ -178,8 +170,9 @@ async def test_runner_falls_back_to_chat_text_when_tool_not_called(tmp_path, mon
         concurrency=1,
     )
 
-    assert results[0].answer == "Chat-only answer"
-    assert sandbox.answer == "Chat-only answer"
+    assert results[0].answer == ""
+    assert results[0].score == 0.0
+    assert sandbox.answer == ""
 
 
 @pytest.mark.anyio
@@ -326,6 +319,7 @@ async def test_run_agent_connects_mcp_servers_before_runner_run(monkeypatch):
     `UserError: Server not initialized. Make sure you call connect() first.`
     """
     import diligence_bench.runner as runner_module
+    import diligence_bench.tools.final_answer  # noqa: F401
 
     server_states: list[dict] = []
 
