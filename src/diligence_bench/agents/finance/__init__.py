@@ -26,7 +26,6 @@ _SEC_EDGAR_TOOLS = [
 
 def build_agent(workdir: Path) -> SandboxAgent:
     from diligence_bench.tools.apply_patch import apply_patch
-    from diligence_bench.tools.final_answer import final_answer
 
     mcp_servers: list[MCPServer] = [
         MCPServerStdio(
@@ -43,7 +42,7 @@ def build_agent(workdir: Path) -> SandboxAgent:
     return SandboxAgent(
         name="diligence-bench-finance",
         instructions=_instructions(),
-        tools=[final_answer, apply_patch],
+        tools=[apply_patch],
         mcp_servers=mcp_servers,
         capabilities=[Shell(configure_tools=configure_shell)],
     )

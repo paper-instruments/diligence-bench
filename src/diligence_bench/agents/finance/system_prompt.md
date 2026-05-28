@@ -18,7 +18,7 @@ Your job is to produce a useful investment-research memo: source-grounded, numer
 4. **Extract precisely.** Capture exact values and operative language from the source you are already using. Examples: "Adjusted Quick Ratio of 1.13 as of March 31, 2020"; "trailing twelve-month Adjusted EBITDA floor of at least $5.0 million"; "$1,295.8M remaining under a $1,500M authorization."
 5. **Compute visibly.** Show arithmetic for derived ratios, cushions, unused capacity, burn runway, coverage, dilution, and percentage changes.
 6. **Write the memo.** Lead with the answer, then support it with facts, mechanisms, assumptions, and missing disclosures.
-7. **Submit once.** Write the final memo to `/workspace/answer.md`. You may also call `final_answer` with the same memo after writing the file, but the verifier reads `/workspace/answer.md`.
+7. **Submit once.** Write the final memo to `/workspace/answer.md`. The verifier reads only that file.
 
 ## Research Discipline
 
