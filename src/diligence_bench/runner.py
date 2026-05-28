@@ -19,6 +19,11 @@ from diligence_bench.cli_agents import CLI_AGENTS, CliAgentResult
 from diligence_bench.harbor.loader import load_tasks_from_dir
 from diligence_bench.results import EvalResult, ResultsWriter
 from diligence_bench.rubric import score as score_answer
+from diligence_bench.sampling import (
+    SamplingPolicy,
+    build_model_settings,
+    resolve_sampling,
+)
 from diligence_bench.sandbox import (
     build_modal_sandbox_client,
     build_modal_sandbox_options,
@@ -37,12 +42,14 @@ def build_harness(
     judge_client: Any,
     judge_model: str = DEFAULT_JUDGE_MODEL,
     judge_sampling_args: Mapping[str, Any] | None = None,
+    sampling_policy: SamplingPolicy | None = None,
     max_turns: int = 100,
 ) -> vf.Harness:
+    policy = sampling_policy if sampling_policy is not None else resolve_sampling(model)
     if agent_name in CLI_AGENTS:
         program = _build_cli_program(agent_name, model, max_turns)
     elif agent_name in AGENTS:
-        program = _build_sandbox_agent_program(agent_name, model, max_turns)
+        program = _build_sandbox_agent_program(agent_name, model, max_turns, policy)
     else:
         raise KeyError(
             f"Unknown agent {agent_name!r}. Known: {sorted(set(AGENTS) | set(CLI_AGENTS))}"
@@ -97,6 +104,7 @@ async def run_eval(
     examples: int = -1,
     concurrency: int = 3,
     judge_sampling_args: Mapping[str, Any] | None = None,
+    sampling_overrides: Mapping[str, Any] | None = None,
     progress_stream: Any = None,
 ) -> list[EvalResult]:
     if concurrency < 1:
@@ -105,12 +113,15 @@ async def run_eval(
     tasks = load_tasks_from_dir(tasks_dir, limit=examples)
     result_model = variant_name(agent_name, model)
     writer = ResultsWriter(Path(output_dir), run_id)
+    policy = resolve_sampling(model, cli_overrides=dict(sampling_overrides or {}))
+    logger.info("Sampling policy [%s]: %s", result_model, policy.describe())
     harness = build_harness(
         agent_name,
         model,
         judge_client=judge_client,
         judge_model=judge_model,
         judge_sampling_args=judge_sampling_args,
+        sampling_policy=policy,
     )
     semaphore = asyncio.Semaphore(concurrency)
 
@@ -194,10 +205,12 @@ async def _run_agent(
     model: str,
     sandbox: Any,
     max_turns: int,
+    sampling_policy: SamplingPolicy,
 ) -> Any:
     from contextlib import AsyncExitStack
 
     from agents import OpenAIChatCompletionsModel, Runner
+    from agents.model_settings import ModelSettings
     from agents.run import RunConfig
     from agents.run_error_handlers import RunErrorHandlerResult
     from agents.sandbox import SandboxRunConfig
@@ -211,6 +224,7 @@ async def _run_agent(
         model=_sdk_model(model, OpenAIChatCompletionsModel, AsyncOpenAI),
         sandbox=SandboxRunConfig(session=sandbox),
         workflow_name="diligence-bench eval",
+        model_settings=_openrouter_model_settings(model, ModelSettings, sampling_policy),
     )
 
     async def _compaction_handler(_inp: Any) -> RunErrorHandlerResult:
@@ -324,6 +338,15 @@ def _compact_input_items(items: Sequence[Any], *, keep_recent: int) -> list[Any]
         else:
             compacted.append(item)
     return compacted
+
+
+def _openrouter_model_settings(
+    model: str,
+    model_settings_cls: Any,
+    policy: SamplingPolicy,
+) -> Any:
+    """Build ModelSettings carrying our sampling policy plus provider routing."""
+    return build_model_settings(model, policy, model_settings_cls)
 
 
 def _sdk_model(model: str, chat_model_cls: Any, client_cls: Any) -> Any:
@@ -483,7 +506,12 @@ def harness_label(agent_name: str) -> str:
     return agent_name
 
 
-def _build_sandbox_agent_program(agent_name: str, model: str, max_turns: int):
+def _build_sandbox_agent_program(
+    agent_name: str,
+    model: str,
+    max_turns: int,
+    sampling_policy: SamplingPolicy,
+):
     async def program(task: vf.Task, state: vf.State) -> vf.State:
         task_dir = Path(str(task["info"]["task_dir"]))
         instruction = (task_dir / "instruction.md").read_text(encoding="utf-8")
@@ -502,6 +530,7 @@ def _build_sandbox_agent_program(agent_name: str, model: str, max_turns: int):
                     model,
                     sandbox,
                     max_turns,
+                    sampling_policy,
                 )
                 await _materialize_final_answer_if_needed(sandbox, result)
                 answer = await _read_answer(sandbox)

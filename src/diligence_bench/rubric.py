@@ -67,6 +67,11 @@ def _make_generate_fn(
     judge_sampling_args: dict[str, Any],
 ):
     async def generate(system_prompt: str, user_prompt: str, **kwargs: Any) -> OneShotOutput:
+        call_args = _normalize_judge_args(judge_sampling_args)
+        if "/" in judge_model:
+            extra_body = dict(call_args.get("extra_body") or {})
+            extra_body.setdefault("provider", {"order": ["Bedrock"], "allow_fallbacks": True})
+            call_args["extra_body"] = extra_body
         response = judge_client.chat.completions.parse(
             model=judge_model,
             messages=[
@@ -74,7 +79,7 @@ def _make_generate_fn(
                 {"role": "user", "content": user_prompt},
             ],
             response_format=OneShotOutput,
-            **_normalize_judge_args(judge_sampling_args),
+            **call_args,
         )
         if inspect.isawaitable(response):
             response = await response

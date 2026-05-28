@@ -27,6 +27,9 @@ ABLATION_FIELDNAMES = [
     "section_scores_json",
     "run_dir",
     "timestamp",
+    "sampling_temperature",
+    "sampling_reasoning_effort",
+    "sampling_verbosity",
 ]
 
 
@@ -50,6 +53,9 @@ class AblationRow:
     section_scores: dict[str, float]
     run_dir: Path
     timestamp: str
+    sampling_temperature: float = 1.0
+    sampling_reasoning_effort: str = "medium"
+    sampling_verbosity: str = "medium"
 
     def to_csv_row(self) -> dict[str, str]:
         return {
@@ -71,6 +77,9 @@ class AblationRow:
             "section_scores_json": json.dumps(self.section_scores, sort_keys=True),
             "run_dir": str(self.run_dir),
             "timestamp": self.timestamp,
+            "sampling_temperature": _fmt_float(self.sampling_temperature),
+            "sampling_reasoning_effort": self.sampling_reasoning_effort,
+            "sampling_verbosity": self.sampling_verbosity,
         }
 
 
@@ -86,6 +95,9 @@ def build_ablation_row(
     dataset: str,
     examples: int,
     run_dir: Path,
+    sampling_temperature: float = 1.0,
+    sampling_reasoning_effort: str = "medium",
+    sampling_verbosity: str = "medium",
 ) -> AblationRow:
     successful = [result for result in results if result.error is None]
     scores = [float(result.score or 0.0) for result in successful]
@@ -109,6 +121,9 @@ def build_ablation_row(
         section_scores=_mean_section_scores(successful),
         run_dir=run_dir,
         timestamp=datetime.now(UTC).isoformat(),
+        sampling_temperature=sampling_temperature,
+        sampling_reasoning_effort=sampling_reasoning_effort,
+        sampling_verbosity=sampling_verbosity,
     )
 
 

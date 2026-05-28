@@ -7,6 +7,7 @@ import os
 import sys
 from datetime import UTC, datetime
 from pathlib import Path
+from typing import Any
 from uuid import uuid4
 
 from dotenv import load_dotenv
@@ -88,7 +89,24 @@ def build_parser() -> argparse.ArgumentParser:
     evaluate.add_argument("--ablation-name", default=None)
     evaluate.add_argument("--run-id", default=None)
     evaluate.add_argument("--examples", type=int, default=-1)
-
+    evaluate.add_argument(
+        "--temperature",
+        type=float,
+        default=None,
+        help="Override sampling temperature for all models in this run.",
+    )
+    evaluate.add_argument(
+        "--reasoning-effort",
+        choices=["minimal", "low", "medium", "high"],
+        default=None,
+        help="Override reasoning effort for all models in this run.",
+    )
+    evaluate.add_argument(
+        "--verbosity",
+        choices=["low", "medium", "high"],
+        default=None,
+        help="Override verbosity for all models in this run.",
+    )
     subparsers.add_parser("list-agents")
     return parser
 
@@ -96,14 +114,18 @@ def build_parser() -> argparse.ArgumentParser:
 async def _run_eval_command(args: argparse.Namespace) -> None:
     from openai import AsyncOpenAI
 
+    from diligence_bench.sampling import resolve_sampling
+
     models = [model.strip() for model in args.models.split(",") if model.strip()]
     if not models:
         raise SystemExit("--models must include at least one model")
     run_id = args.run_id or _run_id()
     output_dir = Path(args.output)
     judge_client = _judge_client(AsyncOpenAI, args.judge_model)
+    sampling_overrides = _sampling_overrides_from_args(args)
     all_results = []
     for model in models:
+        policy = resolve_sampling(model, cli_overrides=sampling_overrides)
         results = await run_eval(
             agent_name=args.agent,
             model=model,
@@ -115,6 +137,7 @@ async def _run_eval_command(args: argparse.Namespace) -> None:
             examples=args.examples,
             concurrency=args.concurrency,
             judge_sampling_args={"temperature": 1.0, "reasoning": {"effort": "minimal"}},
+            sampling_overrides=sampling_overrides,
             progress_stream=sys.stderr,
         )
         all_results.extend(results)
@@ -129,6 +152,9 @@ async def _run_eval_command(args: argparse.Namespace) -> None:
             dataset="diligence-bench",
             examples=len(results),
             run_dir=output_dir / run_id,
+            sampling_temperature=policy.temperature,
+            sampling_reasoning_effort=policy.reasoning_effort,
+            sampling_verbosity=policy.verbosity,
         )
         append_ablation_row(output_dir / "ablations.csv", row)
     del all_results
@@ -149,6 +175,17 @@ def _judge_client(client_cls, judge_model: str):
             "or OPENROUTER_API_KEY; otherwise use a provider-native OpenAI model id."
         )
     return client_cls()
+
+
+def _sampling_overrides_from_args(args: argparse.Namespace) -> dict[str, Any]:
+    overrides: dict[str, Any] = {}
+    if args.temperature is not None:
+        overrides["temperature"] = args.temperature
+    if args.reasoning_effort is not None:
+        overrides["reasoning_effort"] = args.reasoning_effort
+    if args.verbosity is not None:
+        overrides["verbosity"] = args.verbosity
+    return overrides
 
 
 def _positive_int(value: str) -> int:
