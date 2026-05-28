@@ -254,6 +254,11 @@ tbody td { padding: 8px 12px; font-size: 13px; }
 .traj-content.expandable.expanded { max-height: none; }
 .traj-tool-name { color: var(--orange); font-weight: 600; }
 .traj-args { color: var(--text-dim); font-family: monospace; font-size: 11px; }
+.copy-row { margin: 16px 0; padding: 12px 14px; border: 1px solid var(--border); border-radius: 6px; background: var(--surface); }
+.copy-row-header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 8px; }
+.copy-row-label { font-size: 12px; color: var(--text-dim); text-transform: uppercase; letter-spacing: 0.4px; }
+.copy-row pre { margin: 0; padding: 8px 10px; background: var(--bg); border: 1px solid var(--border); border-radius: 4px; font-family: monospace; font-size: 12px; white-space: pre; overflow-x: auto; }
+.copy-row button { padding: 4px 12px; font-size: 12px; cursor: pointer; }
 </style>
 </head>
 <body>
@@ -262,6 +267,14 @@ tbody td { padding: 8px 12px; font-size: 13px; }
 <div class="subtitle" id="subtitle"></div>
 <div class="cards" id="cards"></div>
 <div class="section-bars" id="section-bars"></div>
+
+<div class="copy-row">
+  <div class="copy-row-header">
+    <span class="copy-row-label">Spreadsheet row (errors&nbsp;·&nbsp;mean&nbsp;·&nbsp;median&nbsp;·&nbsp;stddev&nbsp;·&nbsp;sections)</span>
+    <button id="copy-row-btn" type="button">Copy</button>
+  </div>
+  <pre id="copy-row-value" tabindex="0"></pre>
+</div>
 
 <div class="filter-bar">
   <input type="text" id="search" placeholder="Filter by dataset ID or keyword…">
@@ -312,15 +325,37 @@ const cardsEl = document.getElementById('cards');
 });
 
 const barsEl = document.getElementById('section-bars');
+const sectionAverages = {};
 sections.forEach(sec => {
   const vals = valid.map(s => (s.section_scores || {})[sec]).filter(v => v != null);
   const avg = vals.length ? vals.reduce((a, b) => a + b, 0) / vals.length : 0;
+  sectionAverages[sec] = avg;
   const pct = (avg * 100).toFixed(1);
   const color = avg >= 0.7 ? 'var(--green)' : avg >= 0.4 ? 'var(--yellow)' : 'var(--red)';
   barsEl.innerHTML += `<div class="section-bar">
     <div class="section-bar-label">${sec}</div>
     <div class="section-bar-track"><div class="section-bar-fill" style="width:${pct}%;background:${color}"></div></div>
     <div class="section-bar-value" style="color:${color}">${pct}%</div></div>`;
+});
+
+const stdev = (() => {
+  if (valid.length < 2) return 0;
+  const m = mean;
+  const variance = valid.reduce((a, s) => a + (s.score - m) ** 2, 0) / (valid.length - 1);
+  return Math.sqrt(variance);
+})();
+const pct2 = v => (v * 100).toFixed(2) + '%';
+const sectionJson = '{' + Object.keys(sectionAverages).sort()
+  .map(k => `"${k}": ${sectionAverages[k].toFixed(3)}`).join(', ') + '}';
+const spreadsheetRow = [errors.length, pct2(mean), pct2(median), pct2(stdev), sectionJson].join('\t');
+document.getElementById('copy-row-value').textContent = spreadsheetRow;
+document.getElementById('copy-row-btn').addEventListener('click', () => {
+  navigator.clipboard.writeText(spreadsheetRow).then(() => {
+    const btn = document.getElementById('copy-row-btn');
+    const orig = btn.textContent;
+    btn.textContent = 'Copied';
+    setTimeout(() => { btn.textContent = orig; }, 1200);
+  });
 });
 
 const columns = [

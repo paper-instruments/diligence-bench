@@ -38,6 +38,15 @@ def main(argv: list[str] | None = None) -> None:
         level=logging.INFO,
         format="%(asctime)s %(levelname)s %(name)s: %(message)s",
     )
+    for noisy in (
+        "httpx",
+        "httpcore",
+        "mcp",
+        "mcp.server",
+        "mcp.server.lowlevel.server",
+        "openai.agents.tracing",
+    ):
+        logging.getLogger(noisy).setLevel(logging.WARNING)
     args = build_parser().parse_args(argv)
     if args.command == "build-tasks":
         DiligenceBenchAdapter(

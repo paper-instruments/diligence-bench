@@ -113,39 +113,43 @@ def build_ablation_row(
 
 
 def append_ablation_row(path: Path, row: AblationRow) -> bool:
-    """Append one aggregate row unless this exact run and variant already exists."""
+    """Upsert one aggregate row keyed by (ablation_name, run_id, variant).
+
+    On a resume run the same key already exists with stale numbers; overwrite
+    it so the aggregate matches the per-task score files actually on disk.
+    Returns ``True`` if a new row was added, ``False`` if an existing row was
+    replaced.
+    """
     path.parent.mkdir(parents=True, exist_ok=True)
     key = (row.ablation_name, row.run_id, row.variant)
-    if _csv_contains_key(path, key):
-        return False
 
-    write_header = not path.exists()
-    with path.open("a", newline="", encoding="utf-8") as handle:
+    existing_rows: list[dict[str, str]] = []
+    replaced = False
+    if path.exists():
+        with path.open("r", newline="", encoding="utf-8") as handle:
+            reader = csv.DictReader(handle)
+            for existing in reader:
+                existing_key = (
+                    existing.get("ablation_name", ""),
+                    existing.get("run_id", ""),
+                    existing.get("variant", ""),
+                )
+                if existing_key == key:
+                    replaced = True
+                    continue
+                existing_rows.append(existing)
+
+    with path.open("w", newline="", encoding="utf-8") as handle:
         writer = csv.DictWriter(handle, fieldnames=ABLATION_FIELDNAMES)
-        if write_header:
-            writer.writeheader()
+        writer.writeheader()
+        for existing in existing_rows:
+            writer.writerow({key: existing.get(key, "") for key in ABLATION_FIELDNAMES})
         writer.writerow(row.to_csv_row())
-    return True
+    return not replaced
 
 
 def variant_name(harness: str, underlying_model: str) -> str:
     return f"{_slug(harness)}__{_slug(underlying_model)}"
-
-
-def _csv_contains_key(path: Path, key: tuple[str, str, str]) -> bool:
-    if not path.exists():
-        return False
-    with path.open("r", newline="", encoding="utf-8") as handle:
-        reader = csv.DictReader(handle)
-        for existing in reader:
-            existing_key = (
-                existing.get("ablation_name", ""),
-                existing.get("run_id", ""),
-                existing.get("variant", ""),
-            )
-            if existing_key == key:
-                return True
-    return False
 
 
 def _mean(values: list[float] | list[int]) -> float:
