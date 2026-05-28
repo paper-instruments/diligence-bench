@@ -391,7 +391,9 @@ async def test_run_agent_connects_mcp_servers_before_runner_run(monkeypatch):
         write=lambda *_: _async_result(None),
     )
     agent = FakeAgent()
-    result = await runner_module._run_agent(agent, "task", "gpt-5", sandbox, 5)
+    from diligence_bench.sampling import SamplingPolicy
+
+    result = await runner_module._run_agent(agent, "task", "gpt-5", sandbox, 5, SamplingPolicy())
 
     assert result.final_output == "ok"
     assert all(server.connected for server in agent.mcp_servers)
