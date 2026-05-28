@@ -11,7 +11,7 @@ You have shell (`exec_command`, `write_stdin`), file edits (`apply_patch`), and 
 
 ## Submitting
 
-Write your final answer to `/workspace/answer.md`. You may also call `final_answer` with the same text after writing the file, but the grader reads only `/workspace/answer.md`.
+Write your final answer to `/workspace/answer.md`. The grader reads only that file.
 
 ## Style
 

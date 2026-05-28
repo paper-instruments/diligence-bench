@@ -18,7 +18,6 @@ _MCP_TOOL_IDS = ("web_search",)
 
 def build_agent(workdir: Path) -> SandboxAgent:
     from diligence_bench.tools.apply_patch import apply_patch
-    from diligence_bench.tools.final_answer import final_answer
 
     mcp_servers: list[MCPServer] = [
         MCPServerStdio(
@@ -32,7 +31,7 @@ def build_agent(workdir: Path) -> SandboxAgent:
     return SandboxAgent(
         name="diligence-bench-sandbox",
         instructions=_SYSTEM_PROMPT_PATH.read_text(encoding="utf-8").strip(),
-        tools=[final_answer, apply_patch],
+        tools=[apply_patch],
         mcp_servers=mcp_servers,
         capabilities=[
             Shell(configure_tools=configure_shell),
