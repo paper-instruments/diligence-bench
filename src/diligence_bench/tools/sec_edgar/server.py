@@ -218,6 +218,8 @@ def main() -> None:
         level=logging.INFO,
         format="%(asctime)s %(levelname)s %(name)s: %(message)s",
     )
+    for noisy in ("httpx", "httpcore", "mcp", "mcp.server", "mcp.server.lowlevel.server"):
+        logging.getLogger(noisy).setLevel(logging.WARNING)
     mcp.run(transport="stdio")
 
 
