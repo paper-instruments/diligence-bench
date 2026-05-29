@@ -42,7 +42,7 @@ def build_harness(
     judge_model: str = DEFAULT_JUDGE_MODEL,
     judge_sampling_args: Mapping[str, Any] | None = None,
     sampling_policy: SamplingPolicy | None = None,
-    max_turns: int = 100,
+    max_turns: int = 200,
 ) -> vf.Harness:
     policy = sampling_policy if sampling_policy is not None else resolve_sampling(model)
     if agent_name in CLI_AGENTS:
