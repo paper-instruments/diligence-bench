@@ -270,7 +270,7 @@ tbody td { padding: 8px 12px; font-size: 13px; }
 
 <div class="copy-row">
   <div class="copy-row-header">
-    <span class="copy-row-label">Spreadsheet row (errors&nbsp;·&nbsp;mean&nbsp;·&nbsp;median&nbsp;·&nbsp;stddev&nbsp;·&nbsp;sections)</span>
+    <span class="copy-row-label">Spreadsheet row (errors&nbsp;·&nbsp;mean&nbsp;·&nbsp;median&nbsp;·&nbsp;stddev&nbsp;·&nbsp;section%&nbsp;…)</span>
     <button id="copy-row-btn" type="button">Copy</button>
   </div>
   <pre id="copy-row-value" tabindex="0"></pre>
@@ -299,8 +299,9 @@ const allSections = new Set();
 scores.forEach(s => Object.keys(s.section_scores || {}).forEach(k => allSections.add(k)));
 const sections = [...allSections].sort();
 
-const valid = scores.filter(s => !s.error);
-const errors = scores.filter(s => s.error);
+const isError = s => !!s.error || !(s.answer && String(s.answer).trim());
+const valid = scores.filter(s => !isError(s));
+const errors = scores.filter(isError);
 const mean = valid.length ? valid.reduce((a, s) => a + s.score, 0) / valid.length : 0;
 const median = valid.length ? (() => { const sorted = [...valid].sort((a,b) => a.score - b.score); return sorted[Math.floor(sorted.length/2)].score; })() : 0;
 const mn = valid.length ? Math.min(...valid.map(s => s.score)) : 0;
@@ -345,9 +346,9 @@ const stdev = (() => {
   return Math.sqrt(variance);
 })();
 const pct2 = v => (v * 100).toFixed(2) + '%';
-const sectionJson = '{' + Object.keys(sectionAverages).sort()
-  .map(k => `"${k}": ${sectionAverages[k].toFixed(3)}`).join(', ') + '}';
-const spreadsheetRow = [errors.length, pct2(mean), pct2(median), pct2(stdev), sectionJson].join('\t');
+const sectionCells = Object.keys(sectionAverages).sort()
+  .map(k => pct2(sectionAverages[k]));
+const spreadsheetRow = [errors.length, pct2(mean), pct2(median), pct2(stdev), ...sectionCells].join('\t');
 document.getElementById('copy-row-value').textContent = spreadsheetRow;
 document.getElementById('copy-row-btn').addEventListener('click', () => {
   navigator.clipboard.writeText(spreadsheetRow).then(() => {

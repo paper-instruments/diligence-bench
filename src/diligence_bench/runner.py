@@ -182,7 +182,7 @@ async def run_eval(
                     verdicts=[],
                     num_turns=0,
                     judge_model=judge_model,
-                    error=str(exc),
+                    error=str(exc) or type(exc).__name__,
                     underlying_model=model,
                     harness=harness_label(agent_name),
                 )
