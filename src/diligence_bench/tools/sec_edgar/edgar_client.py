@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import asyncio
+import random
 import re
 from collections import OrderedDict
 from dataclasses import dataclass
@@ -10,6 +12,12 @@ import httpx
 DATA_SEC_BASE_URL = "https://data.sec.gov"
 WWW_SEC_BASE_URL = "https://www.sec.gov"
 DEFAULT_CACHE_SIZE = 1000
+
+
+_RETRY_STATUS_CODES = frozenset({429, 503})
+_RETRY_MAX_ATTEMPTS = 6
+_RETRY_BASE_DELAY_S = 1.0
+_RETRY_MAX_DELAY_S = 30.0
 
 
 class _LRUCache:
@@ -148,8 +156,7 @@ class EdgarClient:
         cached = self._json_cache.get(url)
         if cached is not None:
             return cached
-        response = await self._client.get(url)
-        response.raise_for_status()
+        response = await self._request_with_retry(url)
         payload = response.json()
         self._json_cache.set(url, payload)
         return payload
@@ -158,11 +165,25 @@ class EdgarClient:
         cached = self._text_cache.get(url)
         if cached is not None:
             return str(cached)
-        response = await self._client.get(url)
-        response.raise_for_status()
+        response = await self._request_with_retry(url)
         text = response.text
         self._text_cache.set(url, text)
         return text
+
+    async def _request_with_retry(self, url: str) -> httpx.Response:
+        """GET with exponential backoff on 429/503 (SEC rate-limit / overload)."""
+        for attempt in range(_RETRY_MAX_ATTEMPTS):
+            response = await self._client.get(url)
+            if response.status_code in _RETRY_STATUS_CODES:
+                if attempt == _RETRY_MAX_ATTEMPTS - 1:
+                    response.raise_for_status()
+                delay = min(_RETRY_BASE_DELAY_S * (2**attempt), _RETRY_MAX_DELAY_S)
+                delay += random.uniform(0, delay)
+                await asyncio.sleep(delay)
+                continue
+            response.raise_for_status()
+            return response
+        raise RuntimeError(f"SEC EDGAR retries exhausted for {url}")
 
 
 def normalize_accession(accession_number: str) -> str:

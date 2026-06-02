@@ -89,6 +89,21 @@ MODEL_OVERRIDES: dict[str, dict[str, Any]] = {
         "presence_penalty": 0.0,
         "repetition_penalty": 1.0,
     },
+    # MiniMax M3 (vendor card: temp 1.0, top_p 0.95).
+    "minimax/minimax-m3": {
+        "temperature": 1.0,
+        "top_p": 0.95,
+    },
+    # Kimi K2.6 thinking mode (Moonshot model card: temp 1.0, top_p 0.95).
+    "moonshotai/kimi-k2.6": {
+        "temperature": 1.0,
+        "top_p": 0.95,
+    },
+    # GLM-5.1 (Z.AI default: temp 1.0, top_p 0.95).
+    "z-ai/glm-5.1": {
+        "temperature": 1.0,
+        "top_p": 0.95,
+    },
 }
 
 
