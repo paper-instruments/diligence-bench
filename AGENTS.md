@@ -150,4 +150,4 @@ uv run pytest --tb=short                   # short tracebacks
 
 ## License
 
-Apache-2.0. Dataset licensed under CC-BY-4.0 by The LLM Data Company.
+Apache-2.0.
