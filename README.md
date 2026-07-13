@@ -102,4 +102,4 @@ uv run ruff check src tests
 
 Released under [Apache-2.0](LICENSE).
 
-© 2026 The LLM Data Company, Inc. and Thoughtful Lab, Inc.
+© 2026 Paper Instruments, Inc. and Thoughtful Lab, Inc.
