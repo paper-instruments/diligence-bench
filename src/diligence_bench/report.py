@@ -364,8 +364,13 @@ const columns = [
   { key: 'score', label: 'Score' },
   ...sections.map(s => ({ key: `sec_${s}`, label: s.replace(/-/g, ' ') })),
   { key: 'num_turns', label: 'Turns' },
+  { key: 'input_tokens', label: 'In tok' },
+  { key: 'output_tokens', label: 'Out tok' },
+  { key: 'total_tokens', label: 'Total tok' },
   { key: 'error', label: 'Error' },
 ];
+
+const TOKEN_KEYS = new Set(['input_tokens', 'output_tokens', 'total_tokens']);
 
 const theadRow = document.getElementById('thead-row');
 columns.forEach((col, i) => {
@@ -381,6 +386,7 @@ function getValue(s, col) {
   const c = columns[col];
   if (c.key === 'score') return s.score || 0;
   if (c.key === 'num_turns') return s.num_turns || 0;
+  if (TOKEN_KEYS.has(c.key)) return s[c.key] || 0;
   if (c.key === 'error') return s.error || '';
   if (c.key === 'dataset_id') return s.dataset_id || '';
   if (c.key.startsWith('sec_')) return (s.section_scores || {})[c.key.slice(4)] ?? -1;
@@ -429,6 +435,10 @@ function renderTable() {
         td.className = 'error-cell';
         td.textContent = s.error || '';
         td.title = s.error || '';
+      } else if (TOKEN_KEYS.has(col.key)) {
+        td.style.fontVariantNumeric = 'tabular-nums';
+        td.style.textAlign = 'right';
+        td.textContent = s[col.key] ? s[col.key].toLocaleString() : '—';
       } else {
         td.textContent = s[col.key] ?? '—';
       }
