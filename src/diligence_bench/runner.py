@@ -237,6 +237,7 @@ async def _run_agent(
 
         current_input: Any = instruction
         aggregated_new_items: list[Any] = []
+        usage_totals = _new_usage_totals()
         last_result: Any = None
         turns_remaining = max_turns
         while turns_remaining > 0:
@@ -251,6 +252,7 @@ async def _run_agent(
             )
             last_result = result
             aggregated_new_items.extend(getattr(result, "new_items", []) or [])
+            _accumulate_usage(usage_totals, result)
             turns_remaining -= batch
             if getattr(result, "final_output", None) is not _COMPACTION_SENTINEL:
                 if await _read_answer(sandbox) or turns_remaining <= 0:
@@ -269,7 +271,24 @@ async def _run_agent(
         if last_result is not None:
             with contextlib.suppress(AttributeError, TypeError):
                 last_result.new_items = aggregated_new_items  # type: ignore[attr-defined]
+            with contextlib.suppress(AttributeError, TypeError):
+                last_result._diligence_usage = usage_totals  # type: ignore[attr-defined]
         return last_result
+
+
+_USAGE_FIELDS = ("input_tokens", "output_tokens", "total_tokens")
+
+
+def _new_usage_totals() -> dict[str, int]:
+    return dict.fromkeys(_USAGE_FIELDS, 0)
+
+
+def _accumulate_usage(totals: dict[str, int], result: Any) -> None:
+    usage = getattr(getattr(result, "context_wrapper", None), "usage", None)
+    if usage is None:
+        return
+    for field in _USAGE_FIELDS:
+        totals[field] += int(getattr(usage, field, 0) or 0)
 
 
 _COMPACTION_SENTINEL = object()
@@ -401,6 +420,7 @@ def _result_from_state(
 ) -> EvalResult:
     info = state.get("info", {})
     dataset_id = str(info.get("datasetId", "")) if isinstance(info, Mapping) else ""
+    usage = state.get("usage", {}) if isinstance(state.get("usage"), Mapping) else {}
     return EvalResult(
         run_id=run_id,
         model=model,
@@ -415,6 +435,9 @@ def _result_from_state(
         error=_state_error(state),
         underlying_model=underlying_model,
         harness=harness,
+        input_tokens=int(usage.get("input_tokens", 0) or 0),
+        output_tokens=int(usage.get("output_tokens", 0) or 0),
+        total_tokens=int(usage.get("total_tokens", 0) or 0),
     )
 
 
@@ -521,6 +544,7 @@ def _build_sandbox_agent_program(
         state["completion"] = [{"role": "assistant", "content": answer}]
         state["run_items"] = _serializable_run_items(getattr(result, "new_items", None))
         state["num_turns"] = _num_turns(result)
+        state["usage"] = getattr(result, "_diligence_usage", None) or {}
         state["info"] = dict(task["info"])
         return state
 

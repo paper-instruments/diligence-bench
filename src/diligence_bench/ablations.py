@@ -30,6 +30,10 @@ ABLATION_FIELDNAMES = [
     "sampling_temperature",
     "sampling_reasoning_effort",
     "sampling_verbosity",
+    "total_input_tokens",
+    "total_output_tokens",
+    "total_tokens",
+    "mean_total_tokens",
 ]
 
 
@@ -56,6 +60,10 @@ class AblationRow:
     sampling_temperature: float = 1.0
     sampling_reasoning_effort: str = "medium"
     sampling_verbosity: str = "medium"
+    total_input_tokens: int = 0
+    total_output_tokens: int = 0
+    total_tokens: int = 0
+    mean_total_tokens: float = 0.0
 
     def to_csv_row(self) -> dict[str, str]:
         return {
@@ -80,6 +88,10 @@ class AblationRow:
             "sampling_temperature": _fmt_float(self.sampling_temperature),
             "sampling_reasoning_effort": self.sampling_reasoning_effort,
             "sampling_verbosity": self.sampling_verbosity,
+            "total_input_tokens": str(self.total_input_tokens),
+            "total_output_tokens": str(self.total_output_tokens),
+            "total_tokens": str(self.total_tokens),
+            "mean_total_tokens": _fmt_float(self.mean_total_tokens),
         }
 
 
@@ -102,6 +114,7 @@ def build_ablation_row(
     successful = [result for result in results if result.error is None]
     scores = [float(result.score or 0.0) for result in successful]
     turns = [int(result.num_turns or 0) for result in successful]
+    total_tokens = [int(result.total_tokens or 0) for result in successful]
     return AblationRow(
         ablation_name=ablation_name,
         run_id=run_id,
@@ -124,6 +137,10 @@ def build_ablation_row(
         sampling_temperature=sampling_temperature,
         sampling_reasoning_effort=sampling_reasoning_effort,
         sampling_verbosity=sampling_verbosity,
+        total_input_tokens=sum(int(result.input_tokens or 0) for result in successful),
+        total_output_tokens=sum(int(result.output_tokens or 0) for result in successful),
+        total_tokens=sum(total_tokens),
+        mean_total_tokens=_mean(total_tokens),
     )
 
 

@@ -104,6 +104,11 @@ MODEL_OVERRIDES: dict[str, dict[str, Any]] = {
         "temperature": 1.0,
         "top_p": 0.95,
     },
+    # GLM-5.2 (Z.AI default: temp 1.0, top_p 0.95).
+    "z-ai/glm-5.2": {
+        "temperature": 1.0,
+        "top_p": 0.95,
+    },
 }
 
 

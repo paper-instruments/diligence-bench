@@ -28,6 +28,9 @@ class EvalResult:
     error: str | None = None
     underlying_model: str | None = None
     harness: str | None = None
+    input_tokens: int = 0
+    output_tokens: int = 0
+    total_tokens: int = 0
 
     def __post_init__(self) -> None:
         if len(self.query) > QUERY_TRUNCATION_LENGTH:
