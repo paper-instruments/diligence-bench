@@ -23,7 +23,7 @@ Required for real eval runs:
 
 - `OPENAI_API_KEY` or `OPENROUTER_API_KEY` for the model and judge.
 - `MODAL_TOKEN_ID` and `MODAL_TOKEN_SECRET` for Modal sandboxes.
-- `EXA_API_KEY` for web search.
+- `HYPERBROWSER_API_KEY` for web search.
 - `SEC_USER_AGENT` with a contact address for SEC EDGAR requests.
 
 ## Commands

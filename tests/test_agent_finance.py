@@ -34,7 +34,7 @@ def test_build_agent_configures_finance_sandbox_agent(monkeypatch, tmp_path: Pat
         lambda: {
             "command": sys.executable,
             "args": ["-m", "diligence_bench.tools.web_search.server"],
-            "env": {"EXA_API_KEY": "test"},
+            "env": {"HYPERBROWSER_API_KEY": "test"},
         },
     )
 
@@ -53,7 +53,7 @@ def test_build_agent_configures_finance_sandbox_agent(monkeypatch, tmp_path: Pat
     first_server = cast(MCPServerStdio, agent.mcp_servers[0])
     second_server = cast(MCPServerStdio, agent.mcp_servers[1])
     assert first_server.params.command == sys.executable
-    assert second_server.params.env == {"EXA_API_KEY": "test"}
+    assert second_server.params.env == {"HYPERBROWSER_API_KEY": "test"}
 
     assert any(isinstance(capability, Shell) for capability in agent.capabilities)
     assert not any(isinstance(capability, Skills) for capability in agent.capabilities)

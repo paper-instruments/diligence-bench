@@ -106,7 +106,7 @@ def _write_task_toml(
             "timeout_sec": 3600,
             "user": "agent",
             "env": {
-                "EXA_API_KEY": "${EXA_API_KEY:-}",
+                "HYPERBROWSER_API_KEY": "${HYPERBROWSER_API_KEY:-}",
                 "OPENAI_API_KEY": "${OPENAI_API_KEY:-}",
                 "OPENROUTER_API_KEY": "${OPENROUTER_API_KEY:-}",
                 "SEC_USER_AGENT": "${SEC_USER_AGENT:-The LLM Data Company diligence-bench contact@example.com}",
@@ -153,7 +153,7 @@ def _write_docker_compose(task_dir: Path) -> None:
         "services": {
             "main": {
                 "environment": [
-                    "EXA_API_KEY=${EXA_API_KEY:-}",
+                    "HYPERBROWSER_API_KEY=${HYPERBROWSER_API_KEY:-}",
                     "OPENAI_API_KEY=${OPENAI_API_KEY:-}",
                     "OPENROUTER_API_KEY=${OPENROUTER_API_KEY:-}",
                     "MODEL_NAME=${MODEL_NAME:-openrouter/openai/gpt-5.5}",

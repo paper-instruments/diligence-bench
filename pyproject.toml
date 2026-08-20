@@ -42,6 +42,9 @@ packages = ["src/diligence_bench"]
 line-length = 100
 target-version = "py313"
 
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+
 [tool.ruff.lint]
 select = ["E", "F", "I", "UP", "B", "SIM"]
 ignore = ["E501"]

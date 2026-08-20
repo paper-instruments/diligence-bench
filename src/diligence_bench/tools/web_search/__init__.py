@@ -13,7 +13,7 @@ def mcp_stdio_spec() -> dict[str, object]:
         "command": sys.executable,
         "args": [str(Path(__file__).parent / "server.py")],
         "env_allowlist": [
-            "EXA_API_KEY",
+            "HYPERBROWSER_API_KEY",
             "TOOL_OUTPUT_CHAR_BUDGET",
             "WEB_SEARCH_CACHE_SIZE",
             "PATH",

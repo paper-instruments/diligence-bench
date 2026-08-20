@@ -28,21 +28,26 @@ class WebSearchClient(Protocol):
         """Return normalized web search results."""
 
 
-class ExaWebSearchClient:
+class HyperbrowserWebSearchClient:
     def __init__(self, api_key: str | None = None) -> None:
-        self._api_key = api_key or os.getenv("EXA_API_KEY", "")
+        self._api_key = api_key or os.getenv("HYPERBROWSER_API_KEY", "")
         if not self._api_key:
-            raise RuntimeError("EXA_API_KEY is required for web_search")
+            raise RuntimeError("HYPERBROWSER_API_KEY is required for web_search")
         self._client = httpx.AsyncClient(timeout=30.0)
 
     async def search(self, query: str, k: int) -> list[dict[str, Any]]:
+        del k
         response = await self._client.post(
-            "https://api.exa.ai/search",
+            "https://api.hyperbrowser.ai/api/web/search",
             headers={"x-api-key": self._api_key, "content-type": "application/json"},
-            json={"query": query, "numResults": k},
+            json={"query": query, "page": 1},
         )
         response.raise_for_status()
-        return [_normalize_result(item) for item in response.json().get("results", [])]
+        payload = response.json()
+        status = payload.get("status")
+        if status != "completed":
+            raise RuntimeError(payload.get("error") or f"Hyperbrowser search status: {status}")
+        return [_normalize_result(item) for item in payload.get("data", {}).get("results", [])]
 
     async def close(self) -> None:
         await self._client.aclose()
@@ -51,7 +56,7 @@ class ExaWebSearchClient:
 class MissingWebSearchClient:
     async def search(self, query: str, k: int) -> list[dict[str, Any]]:
         del query, k
-        raise RuntimeError("EXA_API_KEY is required for web_search")
+        raise RuntimeError("HYPERBROWSER_API_KEY is required for web_search")
 
 
 class _LRUCache:
@@ -196,7 +201,7 @@ def main() -> None:
 
 def build_web_search_client() -> WebSearchClient:
     try:
-        return ExaWebSearchClient()
+        return HyperbrowserWebSearchClient()
     except RuntimeError:
         return MissingWebSearchClient()
 
@@ -225,7 +230,7 @@ def _normalize_result(item: dict[str, Any]) -> dict[str, Any]:
     return {
         "title": item.get("title", ""),
         "url": item.get("url", ""),
-        "snippet": item.get("text") or item.get("snippet") or "",
+        "snippet": item.get("description") or item.get("text") or item.get("snippet") or "",
         "published_date": item.get("publishedDate") or item.get("published_date"),
     }
 

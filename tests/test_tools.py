@@ -26,7 +26,7 @@ def test_registry_shape() -> None:
     sec_allowlist = cast(list[str], get_mcp_spec("sec_edgar")["env_allowlist"])
     web_allowlist = cast(list[str], get_mcp_spec("web_search")["env_allowlist"])
     assert "SEC_USER_AGENT" in sec_allowlist
-    assert "EXA_API_KEY" in web_allowlist
+    assert "HYPERBROWSER_API_KEY" in web_allowlist
     with pytest.raises(KeyError):
         get_mcp_spec("missing")
 
@@ -139,3 +139,47 @@ async def test_sec_edgar_server_registers_expected_tools() -> None:
         "sec_resolve_company",
         "sec_filing_search",
     }
+
+
+@pytest.mark.anyio
+async def test_web_search_client_queries_hyperbrowser(monkeypatch) -> None:
+    from diligence_bench.tools.web_search import server
+
+    client = server.HyperbrowserWebSearchClient(api_key="test-key")
+
+    async def fake_post(url, *, json=None, headers=None):
+        assert url == "https://api.hyperbrowser.ai/api/web/search"
+        assert json == {"query": "test query", "page": 1}
+
+        class FakeResponse:
+            def raise_for_status(self) -> None:
+                pass
+
+            def json(self) -> dict[str, object]:
+                return {
+                    "jobId": "job-1",
+                    "status": "completed",
+                    "data": {
+                        "query": json["query"],
+                        "results": [
+                            {
+                                "title": "Result",
+                                "url": "https://example.com",
+                                "description": "A snippet",
+                            }
+                        ],
+                    },
+                }
+
+        return FakeResponse()
+
+    monkeypatch.setattr(client._client, "post", fake_post)
+    results = await client.search("test query", 5)
+    assert results == [
+        {
+            "title": "Result",
+            "url": "https://example.com",
+            "snippet": "A snippet",
+            "published_date": None,
+        }
+    ]
