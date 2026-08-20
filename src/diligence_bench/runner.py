@@ -371,9 +371,16 @@ async def _run_chat_agent(
             messages.append(assistant_msg)
 
             if response.usage:
-                usage_totals["input_tokens"] += int(response.usage.input_tokens or 0)
-                usage_totals["output_tokens"] += int(response.usage.output_tokens or 0)
-                usage_totals["total_tokens"] += int(response.usage.total_tokens or 0)
+                usage = response.usage
+                usage_totals["input_tokens"] += int(
+                    getattr(usage, "input_tokens", None) or getattr(usage, "prompt_tokens", 0) or 0
+                )
+                usage_totals["output_tokens"] += int(
+                    getattr(usage, "output_tokens", None)
+                    or getattr(usage, "completion_tokens", 0)
+                    or 0
+                )
+                usage_totals["total_tokens"] += int(getattr(usage, "total_tokens", 0) or 0)
 
             if not tool_calls:
                 if await _read_answer(sandbox):
