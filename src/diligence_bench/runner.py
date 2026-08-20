@@ -10,7 +10,11 @@ from pathlib import Path
 from typing import Any
 
 import verifiers.v1 as vf
+from agents import RunContextWrapper
 from agents.sandbox import WorkspaceReadNotFoundError
+from agents.tool import FunctionTool
+from agents.tool_context import ToolContext
+from openai import AsyncOpenAI
 
 from diligence_bench.ablations import variant_name
 from diligence_bench.agents import AGENTS
@@ -43,12 +47,16 @@ def build_harness(
     judge_sampling_args: Mapping[str, Any] | None = None,
     sampling_policy: SamplingPolicy | None = None,
     max_turns: int = 200,
+    use_chat: bool = False,
 ) -> vf.Harness:
     policy = sampling_policy if sampling_policy is not None else resolve_sampling(model)
     if agent_name in CLI_AGENTS:
         program = _build_cli_program(agent_name, model, max_turns)
     elif agent_name in AGENTS:
-        program = _build_sandbox_agent_program(agent_name, model, max_turns, policy)
+        if use_chat:
+            program = _build_chat_program(agent_name, model, max_turns, policy)
+        else:
+            program = _build_sandbox_agent_program(agent_name, model, max_turns, policy)
     else:
         raise KeyError(
             f"Unknown agent {agent_name!r}. Known: {sorted(set(AGENTS) | set(CLI_AGENTS))}"
@@ -105,12 +113,13 @@ async def run_eval(
     judge_sampling_args: Mapping[str, Any] | None = None,
     sampling_overrides: Mapping[str, Any] | None = None,
     progress_stream: Any = None,
+    use_chat: bool = False,
 ) -> list[EvalResult]:
     if concurrency < 1:
         raise ValueError("concurrency must be at least 1")
 
     tasks = load_tasks_from_dir(tasks_dir, limit=examples)
-    result_model = variant_name(agent_name, model)
+    result_model = variant_name(harness_label(agent_name, use_chat), model)
     writer = ResultsWriter(Path(output_dir), run_id)
     policy = resolve_sampling(model, cli_overrides=dict(sampling_overrides or {}))
     logger.info("Sampling policy [%s]: %s", result_model, policy.describe())
@@ -121,6 +130,7 @@ async def run_eval(
         judge_model=judge_model,
         judge_sampling_args=judge_sampling_args,
         sampling_policy=policy,
+        use_chat=use_chat,
     )
     semaphore = asyncio.Semaphore(concurrency)
 
@@ -163,7 +173,7 @@ async def run_eval(
                     run_id=run_id,
                     model=result_model,
                     underlying_model=model,
-                    harness=harness_label(agent_name),
+                    harness=harness_label(agent_name, use_chat),
                     judge_model=judge_model,
                 )
                 await writer.write(result, trajectory=_trajectory_from_state(state))
@@ -184,7 +194,7 @@ async def run_eval(
                     judge_model=judge_model,
                     error=str(exc) or type(exc).__name__,
                     underlying_model=model,
-                    harness=harness_label(agent_name),
+                    harness=harness_label(agent_name, use_chat),
                 )
                 await writer.write(result, trajectory=[])
                 progress.tick(dataset_id, status="error")
@@ -274,6 +284,138 @@ async def _run_agent(
             with contextlib.suppress(AttributeError, TypeError):
                 last_result._diligence_usage = usage_totals  # type: ignore[attr-defined]
         return last_result
+
+
+async def _run_chat_agent(
+    agent: Any,
+    instruction: str,
+    model: str,
+    sandbox: Any,
+    max_turns: int,
+    sampling_policy: SamplingPolicy,
+) -> dict[str, Any]:
+    """Run the agent via the raw OpenAI chat-completions endpoint.
+
+    Produces a standard ``messages`` list (system / user / assistant / tool)
+    that can be dumped directly as training data for post-training pipelines.
+    """
+    from contextlib import AsyncExitStack
+
+    from diligence_bench.tools.final_answer import FinalAnswerContext
+
+    final_answer_context = FinalAnswerContext(sandbox=sandbox)
+    client, model_id = _chat_client_and_model(model)
+    sampling_kwargs = _chat_sampling_kwargs(model, sampling_policy)
+
+    async with AsyncExitStack() as stack:
+        for server in getattr(agent, "mcp_servers", None) or []:
+            await stack.enter_async_context(server)
+
+        for cap in getattr(agent, "capabilities", None) or []:
+            if hasattr(cap, "bind"):
+                cap.bind(sandbox)
+
+        run_ctx = RunContextWrapper(context=final_answer_context)
+        all_tools = await agent.get_all_tools(run_ctx)
+        shell_tools: list[FunctionTool] = []
+        for cap in getattr(agent, "capabilities", None) or []:
+            if hasattr(cap, "tools"):
+                shell_tools.extend(cap.tools())
+        tools = [t for t in all_tools + shell_tools if isinstance(t, FunctionTool)]
+        tools_by_name = {t.name: t for t in tools}
+        openai_tools = [
+            {
+                "type": "function",
+                "function": {
+                    "name": t.name,
+                    "description": t.description,
+                    "parameters": t.params_json_schema,
+                },
+            }
+            for t in tools
+        ]
+
+        messages: list[dict[str, Any]] = [
+            {"role": "system", "content": str(agent.instructions or "")},
+            {"role": "user", "content": instruction},
+        ]
+        usage_totals = _new_usage_totals()
+        num_turns = 0
+
+        for turn in range(max_turns):
+            response = await client.chat.completions.create(
+                model=model_id,
+                messages=messages,
+                tools=openai_tools or None,
+                tool_choice="auto" if openai_tools else None,
+                **sampling_kwargs,
+            )
+            num_turns += 1
+            message = response.choices[0].message
+            assistant_msg: dict[str, Any] = {"role": "assistant"}
+            if message.content:
+                assistant_msg["content"] = message.content
+            tool_calls = getattr(message, "tool_calls", None) or []
+            if tool_calls:
+                assistant_msg["tool_calls"] = [
+                    {
+                        "id": tc.id,
+                        "type": "function",
+                        "function": {
+                            "name": tc.function.name,
+                            "arguments": tc.function.arguments,
+                        },
+                    }
+                    for tc in tool_calls
+                ]
+            messages.append(assistant_msg)
+
+            if response.usage:
+                usage_totals["input_tokens"] += int(response.usage.input_tokens or 0)
+                usage_totals["output_tokens"] += int(response.usage.output_tokens or 0)
+                usage_totals["total_tokens"] += int(response.usage.total_tokens or 0)
+
+            if not tool_calls:
+                if await _read_answer(sandbox):
+                    break
+                turns_remaining = max_turns - turn - 1
+                nudge = (
+                    _TURN_BUDGET_NUDGE_HARD
+                    if turns_remaining <= _BATCH_TURNS // 2
+                    else _TURN_BUDGET_NUDGE_SOFT
+                )
+                messages.append({"role": "user", "content": nudge})
+                logger.warning(
+                    "agent stopped without answer.md (%d turns remaining); nudging",
+                    turns_remaining,
+                )
+                continue
+
+            async def _execute(tc: Any) -> str:
+                tool = tools_by_name.get(tc.function.name)
+                if tool is None:
+                    return f"Error: unknown tool {tc.function.name}"
+                tool_ctx = ToolContext(
+                    context=final_answer_context,
+                    tool_name=tool.name,
+                    tool_call_id=tc.id,
+                    tool_arguments=tc.function.arguments,
+                )
+                output = await tool.on_invoke_tool(tool_ctx, tc.function.arguments)
+                return _tool_output_to_str(output)
+
+            outputs = await asyncio.gather(*(_execute(tc) for tc in tool_calls))
+            for tc, output in zip(tool_calls, outputs, strict=False):
+                messages.append({"role": "tool", "tool_call_id": tc.id, "content": output})
+
+            if _estimated_input_chars(messages) > _COMPACTION_CHAR_BUDGET:
+                messages = _compact_messages(messages, keep_recent=_KEEP_RECENT_TOOL_OUTPUTS)
+
+    return {
+        "messages": messages,
+        "num_turns": num_turns,
+        "usage": usage_totals,
+    }
 
 
 _USAGE_FIELDS = ("input_tokens", "output_tokens", "total_tokens")
@@ -506,9 +648,11 @@ def _num_turns(result: Any) -> int:
     return 0
 
 
-def harness_label(agent_name: str) -> str:
+def harness_label(agent_name: str, use_chat: bool = False) -> str:
     if agent_name in CLI_AGENTS:
         return f"cli-{agent_name}"
+    if use_chat:
+        return f"chat-{agent_name}"
     return agent_name
 
 
@@ -545,6 +689,45 @@ def _build_sandbox_agent_program(
         state["run_items"] = _serializable_run_items(getattr(result, "new_items", None))
         state["num_turns"] = _num_turns(result)
         state["usage"] = getattr(result, "_diligence_usage", None) or {}
+        state["info"] = dict(task["info"])
+        return state
+
+    return program
+
+
+def _build_chat_program(
+    agent_name: str,
+    model: str,
+    max_turns: int,
+    sampling_policy: SamplingPolicy,
+):
+    async def program(task: vf.Task, state: vf.State) -> vf.State:
+        task_dir = Path(str(task["info"]["task_dir"]))
+        instruction = (task_dir / "instruction.md").read_text(encoding="utf-8")
+        with tempfile.TemporaryDirectory(prefix="diligence-bench-chat-") as tempdir:
+            agent = AGENTS[agent_name](Path(tempdir))
+            client = build_modal_sandbox_client()
+            options = build_modal_sandbox_options(timeout=max_turns * 60)
+            sandbox = await client.create(
+                manifest=getattr(agent, "default_manifest", None),
+                options=options,
+            )
+            async with sandbox:
+                result = await _run_chat_agent(
+                    agent,
+                    instruction,
+                    model,
+                    sandbox,
+                    max_turns,
+                    sampling_policy,
+                )
+                answer = await _read_answer(sandbox)
+
+        state["answer"] = answer
+        state["completion"] = [{"role": "assistant", "content": answer}]
+        state["run_items"] = result.get("messages", [])
+        state["num_turns"] = result.get("num_turns", 0)
+        state["usage"] = result.get("usage", {})
         state["info"] = dict(task["info"])
         return state
 
@@ -636,3 +819,79 @@ class _Progress:
             self._stream.flush()
         except Exception:  # pragma: no cover - defensive
             pass
+
+
+def _chat_client_and_model(model: str) -> tuple[AsyncOpenAI, str]:
+    """Return an ``AsyncOpenAI`` client and the wire model id for chat completions."""
+    from openai import AsyncOpenAI
+
+    if "/" in model:
+        api_key = os.getenv("OPENROUTER_BENCHMARK_API_KEY") or os.getenv("OPENROUTER_API_KEY")
+        if not api_key:
+            raise RuntimeError(
+                f"model {model!r} is provider-namespaced but neither "
+                "OPENROUTER_BENCHMARK_API_KEY nor OPENROUTER_API_KEY is set"
+            )
+        return (
+            AsyncOpenAI(base_url="https://openrouter.ai/api/v1", api_key=api_key),
+            model,
+        )
+    if not os.getenv("OPENAI_API_KEY"):
+        raise RuntimeError(
+            f"model {model!r} is a bare id; set OPENAI_API_KEY or use a "
+            "namespaced id like 'openai/gpt-5' to route through OpenRouter"
+        )
+    return AsyncOpenAI(), model
+
+
+def _chat_sampling_kwargs(model: str, policy: SamplingPolicy) -> dict[str, Any]:
+    """Build kwargs for ``chat.completions.create`` from a ``SamplingPolicy``."""
+    kwargs: dict[str, Any] = {}
+    if policy.temperature is not None:
+        kwargs["temperature"] = policy.temperature
+    if policy.top_p is not None:
+        kwargs["top_p"] = policy.top_p
+    if policy.reasoning_effort is not None:
+        kwargs["reasoning_effort"] = policy.reasoning_effort
+
+    extra_body: dict[str, Any] = {}
+    if "/" in model:
+        extra_body["provider"] = {"order": ["Bedrock"], "allow_fallbacks": True}
+        if policy.verbosity is not None:
+            extra_body["verbosity"] = policy.verbosity
+    for name in ("top_k", "min_p", "presence_penalty", "repetition_penalty"):
+        value = getattr(policy, name)
+        if value is not None:
+            extra_body[name] = value
+    if extra_body:
+        kwargs["extra_body"] = extra_body
+    return kwargs
+
+
+def _tool_output_to_str(output: Any) -> str:
+    """Normalize any tool output to a string for a chat ``tool`` message."""
+    if isinstance(output, str):
+        return output
+    if isinstance(output, list):
+        return "\n\n".join(_tool_output_to_str(item) for item in output)
+    if hasattr(output, "text"):
+        return str(output.text)
+    if hasattr(output, "model_dump"):
+        return str(output.model_dump())
+    return str(output)
+
+
+def _compact_messages(messages: list[dict[str, Any]], *, keep_recent: int) -> list[dict[str, Any]]:
+    """Trim old tool outputs to a stub to keep the context window bounded."""
+    tool_indices = [i for i, m in enumerate(messages) if m.get("role") == "tool"]
+    trim_until = max(0, len(tool_indices) - keep_recent)
+    targets = set(tool_indices[:trim_until])
+    compacted: list[dict[str, Any]] = []
+    for i, message in enumerate(messages):
+        if i in targets:
+            compacted_message = dict(message)
+            compacted_message["content"] = _TRIMMED_OUTPUT_STUB
+            compacted.append(compacted_message)
+        else:
+            compacted.append(message)
+    return compacted

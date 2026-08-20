@@ -107,6 +107,11 @@ def build_parser() -> argparse.ArgumentParser:
         default=None,
         help="Override verbosity for all models in this run.",
     )
+    evaluate.add_argument(
+        "--chat-completions",
+        action="store_true",
+        help="Run SandboxAgent agents against the raw chat-completions endpoint.",
+    )
     subparsers.add_parser("list-agents")
     return parser
 
@@ -139,14 +144,15 @@ async def _run_eval_command(args: argparse.Namespace) -> None:
             judge_sampling_args={"temperature": 1.0, "reasoning": {"effort": "minimal"}},
             sampling_overrides=sampling_overrides,
             progress_stream=sys.stderr,
+            use_chat=args.chat_completions,
         )
         all_results.extend(results)
         row = build_ablation_row(
             results,
             ablation_name=args.ablation_name or run_id,
             run_id=run_id,
-            variant=variant_name(args.agent, model),
-            harness=harness_label(args.agent),
+            variant=variant_name(harness_label(args.agent, args.chat_completions), model),
+            harness=harness_label(args.agent, args.chat_completions),
             underlying_model=model,
             judge_model=args.judge_model,
             dataset="diligence-bench",
