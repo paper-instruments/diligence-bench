@@ -821,9 +821,46 @@ class _Progress:
             pass
 
 
+_CHAT_PROVIDERS: dict[str, dict[str, str]] = {
+    "fireworks": {
+        "api_key_env": "FIREWORKS_API_KEY",
+        "base_url": "https://api.fireworks.ai/inference/v1",
+    },
+    "baseten": {
+        "api_key_env": "BASETEN_API_KEY",
+        "base_url": "https://inference.baseten.co/v1",
+    },
+    "sail": {
+        "api_key_env": "SAIL_API_KEY",
+        "base_url": "https://api.sailresearch.com/v1",
+    },
+    "sailresearch": {
+        "api_key_env": "SAIL_API_KEY",
+        "base_url": "https://api.sailresearch.com/v1",
+    },
+}
+
+
+def _chat_provider(model: str) -> str | None:
+    """Return the provider key if ``model`` uses a supported chat-completions prefix."""
+    if "/" not in model:
+        return None
+    prefix = model.split("/", 1)[0].lower()
+    return prefix if prefix in _CHAT_PROVIDERS else None
+
+
 def _chat_client_and_model(model: str) -> tuple[AsyncOpenAI, str]:
     """Return an ``AsyncOpenAI`` client and the wire model id for chat completions."""
-    from openai import AsyncOpenAI
+    provider = _chat_provider(model)
+    if provider is not None:
+        config = _CHAT_PROVIDERS[provider]
+        api_key = os.getenv(config["api_key_env"])
+        if not api_key:
+            raise RuntimeError(
+                f"model {model!r} routed to {provider} but {config['api_key_env']} is not set"
+            )
+        _, wire_model = model.split("/", 1)
+        return AsyncOpenAI(base_url=config["base_url"], api_key=api_key), wire_model
 
     if "/" in model:
         api_key = os.getenv("OPENROUTER_BENCHMARK_API_KEY") or os.getenv("OPENROUTER_API_KEY")
@@ -832,10 +869,8 @@ def _chat_client_and_model(model: str) -> tuple[AsyncOpenAI, str]:
                 f"model {model!r} is provider-namespaced but neither "
                 "OPENROUTER_BENCHMARK_API_KEY nor OPENROUTER_API_KEY is set"
             )
-        return (
-            AsyncOpenAI(base_url="https://openrouter.ai/api/v1", api_key=api_key),
-            model,
-        )
+        return AsyncOpenAI(base_url="https://openrouter.ai/api/v1", api_key=api_key), model
+
     if not os.getenv("OPENAI_API_KEY"):
         raise RuntimeError(
             f"model {model!r} is a bare id; set OPENAI_API_KEY or use a "
@@ -846,11 +881,18 @@ def _chat_client_and_model(model: str) -> tuple[AsyncOpenAI, str]:
 
 def _chat_sampling_kwargs(model: str, policy: SamplingPolicy) -> dict[str, Any]:
     """Build kwargs for ``chat.completions.create`` from a ``SamplingPolicy``."""
+    provider = _chat_provider(model)
     kwargs: dict[str, Any] = {}
     if policy.temperature is not None:
         kwargs["temperature"] = policy.temperature
     if policy.top_p is not None:
         kwargs["top_p"] = policy.top_p
+
+    if provider in ("fireworks", "baseten", "sail", "sailresearch"):
+        # These endpoints are OpenAI-compatible but do not accept OpenAI/Anthropic
+        # reasoning or verbosity parameters; avoid sending unsupported kwargs.
+        return kwargs
+
     if policy.reasoning_effort is not None:
         kwargs["reasoning_effort"] = policy.reasoning_effort
 
