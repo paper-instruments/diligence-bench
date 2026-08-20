@@ -233,7 +233,7 @@ async def _run_agent(
         model=_sdk_model(model, OpenAIChatCompletionsModel, AsyncOpenAI),
         sandbox=SandboxRunConfig(session=sandbox),
         workflow_name="diligence-bench eval",
-        model_settings=_openrouter_model_settings(model, ModelSettings, sampling_policy),
+        model_settings=_agent_model_settings(model, ModelSettings, sampling_policy),
     )
 
     async def _compaction_handler(_inp: Any) -> RunErrorHandlerResult:
@@ -497,12 +497,17 @@ def _compact_input_items(items: Sequence[Any], *, keep_recent: int) -> list[Any]
     return compacted
 
 
-def _openrouter_model_settings(
+def _agent_model_settings(
     model: str,
     model_settings_cls: Any,
     policy: SamplingPolicy,
 ) -> Any:
-    """Build ModelSettings carrying our sampling policy plus provider routing."""
+    """Build ModelSettings for the SDK runner, provider-aware."""
+    if _chat_provider(model) in ("fireworks", "baseten", "sail", "sailresearch"):
+        return model_settings_cls(
+            temperature=policy.temperature,
+            top_p=policy.top_p,
+        )
     return build_model_settings(model, policy, model_settings_cls)
 
 
@@ -510,14 +515,28 @@ def _sdk_model(model: str, chat_model_cls: Any, client_cls: Any) -> Any:
     """Build an SDK model object for the requested model id.
 
     Routing rules:
-    - ``provider/model`` ids (anything containing ``/``) require an OpenRouter
-      key in the environment. We route through OpenRouter using the full id
-      verbatim.
-    - bare model ids (``gpt-5``, ``claude-opus-4.7``) require ``OPENAI_API_KEY``
-      and use the SDK's default OpenAI client.
-    - in either case, missing credentials raise immediately so a 50-task batch
-      doesn't silently fail at the first model call.
+    - ``fireworks/``, ``baseten/``, ``sail/``, and ``sailresearch/`` prefixes
+      route directly to those OpenAI-compatible endpoints.
+    - other ``provider/model`` ids route through OpenRouter.
+    - bare model ids (``gpt-5``, ``claude-opus-4.7``) use the SDK's default
+      OpenAI client.
+    - missing credentials raise immediately so a 50-task batch doesn't silently
+      fail at the first model call.
     """
+    provider = _chat_provider(model)
+    if provider is not None:
+        config = _CHAT_PROVIDERS[provider]
+        api_key = os.getenv(config["api_key_env"])
+        if not api_key:
+            raise RuntimeError(
+                f"model {model!r} routed to {provider} but {config['api_key_env']} is not set"
+            )
+        _, wire_model = model.split("/", 1)
+        return chat_model_cls(
+            model=wire_model,
+            openai_client=client_cls(base_url=config["base_url"], api_key=api_key),
+        )
+
     if "/" in model:
         api_key = os.getenv("OPENROUTER_BENCHMARK_API_KEY") or os.getenv("OPENROUTER_API_KEY")
         if not api_key:
